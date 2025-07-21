@@ -1,0 +1,10 @@
+vendor/
+.env
+*.log
+.idea/
+*.swp
+.DS_Store
+node_modules/
+config/config.development.php
+config/config.php
+config/config.development.php
