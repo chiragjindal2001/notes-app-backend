@@ -8,3 +8,4 @@ node_modules/
 config/config.development.php
 config/config.php
 config/config.development.php
+public/uploads/images/*
