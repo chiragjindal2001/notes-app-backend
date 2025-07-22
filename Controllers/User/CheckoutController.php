@@ -22,7 +22,7 @@ class CheckoutController
         
         $input = json_decode(file_get_contents('php://input'), true);
         
-        if (!is_array($input) || empty($input['items']) || empty($input['customer_info']) || empty($input['billing_address'])) {
+        if (!is_array($input) || empty($input['items']) || empty($input['customer_info'])) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Missing required fields']);
             return;
@@ -40,11 +40,14 @@ class CheckoutController
             }
         }
 
+        // Generate order_id
+        $order_id = 'ORD-' . time() . '-' . rand(100,999);
         $orderData = [
+            'order_id' => $order_id,
             'customer_email' => $input['customer_info']['email'],
             'customer_name' => trim(($input['customer_info']['first_name'] ?? '') . ' ' . ($input['customer_info']['last_name'] ?? '')),
             'phone' => $input['customer_info']['phone'],
-            'billing_address' => json_encode($input['billing_address']),
+            'total_amount' => 0, // will be updated in the model
             'status' => 'pending',
             'user_id' => $user_id
         ];
@@ -59,41 +62,9 @@ class CheckoutController
         }
 
         $amount_in_paise = (int) round($order['total_amount'] * 100);
-        $currency = 'INR';
-
-        // Generate order_id
-        $order_id = 'ORD-' . time() . '-' . rand(100,999);
-        $customer = $input['customer_info'];
-        $billing = $input['billing_address'];
-        $customer_name = trim(($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? ''));
-
-        // Insert order
-        $sql = 'INSERT INTO orders (order_id, customer_email, customer_name, phone, billing_address, status, total_amount, currency, created_at) VALUES (:order_id, :email, :name, :phone, :billing, :status, :total, :currency, NOW()) RETURNING id';
-        $stmt = pg_query_params($sql);
-        $stmt->execute([
-            ':order_id' => $order_id,
-            ':email' => $customer['email'],
-            ':name' => $customer_name,
-            ':phone' => $customer['phone'],
-            ':billing' => json_encode($billing),
-            ':status' => 'pending',
-            ':total' => $amount,
-            ':currency' => $currency
-        ]);
-        $db_order_id = $stmt->fetchColumn();
-        // Insert order items
-        $item_sql = 'INSERT INTO order_items (order_id, note_id, quantity) VALUES (:order_id, :note_id, :quantity)';
-        $item_stmt = pg_query_params($item_sql);
-        foreach ($input['items'] as $item) {
-            $item_stmt->execute([
-                ':order_id' => $db_order_id,
-                ':note_id' => $item['note_id'],
-                ':quantity' => $item['quantity']
-            ]);
-        }
 
         // Create Razorpay order
-        $config = require dirname(__DIR__) . '/config/config.development.php';
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         $razorpay = $config['razorpay'];
         $data = [
             'amount' => $amount_in_paise,
@@ -117,9 +88,7 @@ class CheckoutController
             return;
         }
         // Update order with razorpay_order_id
-        pg_query_params('UPDATE orders SET razorpay_order_id = :rpid WHERE id = :id')->execute([
-            ':rpid' => $razorpay_order['id'], ':id' => $db_order_id
-        ]);
+        pg_query_params($pdo, 'UPDATE orders SET razorpay_order_id = $1 WHERE id = $2', [$razorpay_order['id'], $db_order_id]);
 
         $response = [
             'success' => true,

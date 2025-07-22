@@ -9,16 +9,22 @@ class Cart
 
     public function addItem($data)
     {
-        // Requires: user_id, note_id, quantity
+        // Requires: user_id, note_id
         if (empty($data['user_id'])) {
             throw new Exception('User ID is required');
         }
-        
-        $sql = 'INSERT INTO cart_items (user_id, note_id, quantity) VALUES ($1, $2, $3) RETURNING *';
+        // Check for existing item
+        $checkSql = 'SELECT * FROM cart_items WHERE user_id = $1 AND note_id = $2';
+        $checkResult = pg_query_params($this->conn, $checkSql, [$data['user_id'], $data['note_id']]);
+        $existing = pg_fetch_assoc($checkResult);
+        if ($existing) {
+            // Already in cart, return existing item
+            return $existing;
+        }
+        $sql = 'INSERT INTO cart_items (user_id, note_id) VALUES ($1, $2) RETURNING *';
         $params = [
             $data['user_id'],
-            $data['note_id'],
-            $data['quantity']
+            $data['note_id']
         ];
         $result = pg_query_params($this->conn, $sql, $params);
         return pg_fetch_assoc($result);
@@ -30,7 +36,7 @@ class Cart
             throw new Exception('User ID is required');
         }
         
-        $sql = 'SELECT * FROM cart_items WHERE user_id = $1';
+        $sql = 'SELECT ci.*, n.title, n.price, n.preview_image FROM cart_items ci JOIN notes n ON ci.note_id = n.id WHERE ci.user_id = $1';
         $result = pg_query_params($this->conn, $sql, [$user_id]);
         $items = [];
         while ($row = pg_fetch_assoc($result)) {
@@ -39,10 +45,11 @@ class Cart
         return $items;
     }
 
-    public function updateItem($item_id, $quantity)
+    public function updateItem($item_id)
     {
-        $sql = 'UPDATE cart_items SET quantity = $1 WHERE id = $2 RETURNING *';
-        $result = pg_query_params($this->conn, $sql, [$quantity, $item_id]);
+        // No quantity to update, just return the item
+        $sql = 'SELECT * FROM cart_items WHERE id = $1';
+        $result = pg_query_params($this->conn, $sql, [$item_id]);
         return pg_fetch_assoc($result);
     }
 

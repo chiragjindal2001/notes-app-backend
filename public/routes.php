@@ -36,14 +36,17 @@ if ($uri === '/' || $uri === '/hello') {
     require_once dirname(__DIR__) . '/Controllers/User/CartController.php';
     CartController::clearCart();
 } elseif ($uri === '/api/checkout/create-order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/models/Order.php';
     require_once dirname(__DIR__) . '/Controllers/User/CheckoutController.php';
-    CheckoutController::createOrder();
+    \Controllers\User\CheckoutController::createOrder();
 } elseif ($uri === '/api/checkout/verify-payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/models/Order.php';
     require_once dirname(__DIR__) . '/Controllers/User/CheckoutController.php';
-    CheckoutController::verifyPayment();
+    \Controllers\User\CheckoutController::verifyPayment();
 } elseif ($uri === '/api/payments/verify' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/models/Order.php';
     require_once dirname(__DIR__) . '/Controllers/User/CheckoutController.php';
-    CheckoutController::verifySignature();
+    \Controllers\User\CheckoutController::verifySignature();
 } elseif ($uri === '/api/coupons/validate' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once dirname(__DIR__) . '/Controllers/User/CouponController.php';
     CouponController::validateCoupon();
@@ -96,6 +99,9 @@ if ($uri === '/' || $uri === '/hello') {
     require_once dirname(__DIR__) . '/Controllers/Admin/AdminNotesController.php';
     AdminNotesController::listNotes();
 } elseif (preg_match('#^/api/admin/notes/(\d+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'PUT') {
+    require_once dirname(__DIR__) . '/Controllers/Admin/AdminNotesController.php';
+    AdminNotesController::updateNote((int)$matches[1]);
+} elseif (preg_match('#^/api/admin/notes/(\d+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once dirname(__DIR__) . '/Controllers/Admin/AdminNotesController.php';
     AdminNotesController::updateNote((int)$matches[1]);
 } elseif (preg_match('#^/api/admin/notes/(\d+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'DELETE') {

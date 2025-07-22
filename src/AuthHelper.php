@@ -3,6 +3,8 @@ namespace Helpers;
 
 use Exception;
 
+require_once __DIR__ . '/Helpers/JwtService.php';
+
 class AuthHelper
 {
     public static function requireAdminAuth()
@@ -24,7 +26,7 @@ class AuthHelper
         
         try {
             // Initialize JWT helper with config
-            JwtHelper::init();
+            JwtService::init();
             
             // Get JWT configuration
             $jwtConfig = Config::jwt();
@@ -55,6 +57,7 @@ class AuthHelper
             }
             
             $payload_data = json_decode(base64_decode($payload), true);
+            file_put_contents(__DIR__ . '/admin_jwt_payload.log', print_r($payload_data, true));
             if (!$payload_data || ($payload_data['role'] ?? null) !== 'admin') {
                 self::unauthorized('Not an admin');
             }
@@ -63,6 +66,7 @@ class AuthHelper
             
         } catch (Exception $e) {
             error_log('Auth error: ' . $e->getMessage());
+            file_put_contents(__DIR__ . '/admin_jwt_error.log', $e->getMessage());
             self::unauthorized('Authentication failed: ' . $e->getMessage());
         }
     }

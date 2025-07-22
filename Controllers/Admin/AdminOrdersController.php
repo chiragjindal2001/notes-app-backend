@@ -81,7 +81,7 @@ class AdminOrdersController
         $total_pages = (int)ceil($total_items / $limit);
         // Fetch items for each order
         foreach ($orders as &$order) {
-            $item_sql = 'SELECT oi.note_id, n.title, n.price, oi.quantity FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = (SELECT id FROM orders WHERE order_id = $1)';
+            $item_sql = 'SELECT oi.note_id, n.title, n.price FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = (SELECT id FROM orders WHERE order_id = $1)';
             $item_result = pg_query_params($conn, $item_sql, [$order['order_id']]);
             $items = [];
             if ($item_result !== false) {

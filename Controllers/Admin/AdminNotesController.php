@@ -4,7 +4,7 @@ class AdminNotesController
 {
     public static function createNote()
     {
-        AuthHelper::requireAdminAuth();
+        \Helpers\AuthHelper::requireAdminAuth();
         // Log request body and headers for debugging
         $logData = [
             'time' => date('c'),
@@ -120,7 +120,7 @@ class AdminNotesController
     }
     public static function listNotes()
     {
-        AuthHelper::requireAdminAuth();
+        \Helpers\AuthHelper::requireAdminAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
@@ -159,7 +159,7 @@ class AdminNotesController
                     'name' => $filename,
                     'url' => $file_url ? ($_SERVER['HTTP_HOST'] ?? 'localhost') . $file_url : null
                 ],
-                'preview' => $row['preview_image'] ? ($_SERVER['HTTP_HOST'] ?? 'localhost') . $row['preview_image'] : null,
+                'preview' => $row['preview_image'] ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $row['preview_image']) : null,
                 'uploadDate' => date('Y-m-d', strtotime($row['created_at']))
             ];
             
@@ -176,14 +176,17 @@ class AdminNotesController
 
     public static function updateNote($id)
     {
-        AuthHelper::requireAdminAuth();
-        if ($_SERVER['REQUEST_METHOD'] !== 'PUT') {
+        \Helpers\AuthHelper::requireAdminAuth();
+        if ($_SERVER['REQUEST_METHOD'] !== 'PUT' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $input = json_decode(file_get_contents('php://input'), true);
-        if (!$input) {
+
+        // Support both JSON and multipart/form-data
+        $isMultipart = isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'multipart/form-data') !== false;
+        $input = $isMultipart ? $_POST : json_decode(file_get_contents('php://input'), true);
+        if (!$input && empty($_FILES)) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Missing request body']);
             return;
@@ -197,32 +200,73 @@ class AdminNotesController
                 $params[":$f"] = is_array($input[$f]) ? json_encode($input[$f]) : $input[$f];
             }
         }
-        if (!$set) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'No fields to update']);
-            return;
-        }
+
+        // DEBUG: Log received POST and FILES for troubleshooting
+        file_put_contents(dirname(__DIR__, 2) . '/src/admin_notes_update_request.log', print_r(['POST' => $_POST, 'FILES' => $_FILES], true) . "\n---\n", FILE_APPEND);
+
+        // Ensure database connection is defined before use
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        
+
         // Build SQL with positional parameters for pg_query_params
         $sql_parts = [];
         $param_values = [];
         $param_index = 1;
-        
+
         foreach ($fields as $f) {
             if (isset($input[$f])) {
+                $value = $input[$f];
+                if (in_array($f, ['tags', 'features', 'topics'])) {
+                    if (empty($value) || $value === '') {
+                        $value = [];
+                    }
+                    $value = json_encode($value);
+                }
                 $sql_parts[] = "$f = $" . $param_index;
-                $param_values[] = is_array($input[$f]) ? json_encode($input[$f]) : $input[$f];
+                $param_values[] = $value;
                 $param_index++;
             }
         }
-        
-        // Add id parameter at the end
+
+        // Handle file uploads (PDF and preview image)
+        $file_fields = [
+            'note_file' => 'file_url',
+            'preview_image' => 'preview_image'
+        ];
+        foreach ($file_fields as $formField => $dbField) {
+            if ($isMultipart && isset($_FILES[$formField]) && !empty($_FILES[$formField]['name'])) {
+                $name = $_FILES[$formField]['name'];
+                $tmp = $_FILES[$formField]['tmp_name'];
+                $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                $target_dir = '';
+                $url_prefix = '';
+                if ($formField === 'note_file' && $ext === 'pdf') {
+                    $target_dir = dirname(__DIR__, 2) . '/private_uploads/pdfs/';
+                    $url_prefix = '/private_uploads/pdfs/';
+                } elseif ($formField === 'preview_image' && in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                    $target_dir = dirname(__DIR__, 2) . '/public/uploads/images/';
+                    $url_prefix = '/uploads/images/';
+                }
+                if ($target_dir && $url_prefix) {
+                    if (!is_dir($target_dir)) mkdir($target_dir,0777,true);
+                    $dest = $target_dir . uniqid() . '-' . basename($name);
+                    move_uploaded_file($tmp, $dest);
+                    $sql_parts[] = "$dbField = $" . $param_index;
+                    $param_values[] = $url_prefix . basename($dest);
+                    $param_index++;
+                }
+            }
+        }
+
+        if (!$sql_parts) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'No fields to update']);
+            return;
+        }
+
         $param_values[] = $id;
-        $sql = 'UPDATE notes SET ' . implode(', ', $sql_parts) . ' WHERE id = $' . $param_index . ' RETURNING id, title, subject, price, status, created_at, preview_image';
-        
+        $sql = 'UPDATE notes SET ' . implode(', ', $sql_parts) . ' WHERE id = $' . $param_index . ' RETURNING id, title, subject, price, status, created_at, preview_image, file_url';
         $result = pg_query_params($conn, $sql, $param_values);
         $note = pg_fetch_assoc($result);
         if (!$note) {
@@ -241,7 +285,7 @@ class AdminNotesController
 
     public static function deleteNote($id)
     {
-        AuthHelper::requireAdminAuth();
+        \Helpers\AuthHelper::requireAdminAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
@@ -268,7 +312,7 @@ class AdminNotesController
 
     public static function updateNoteStatus($id)
     {
-        AuthHelper::requireAdminAuth();
+        \Helpers\AuthHelper::requireAdminAuth();
         if ($_SERVER['REQUEST_METHOD'] !== 'PATCH') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);

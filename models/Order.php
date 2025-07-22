@@ -15,264 +15,169 @@ class Order
 
     public function create($orderData, $items)
     {
-        try {
-            $this->conn->beginTransaction();
-            
-            $sql = 'INSERT INTO orders (
-                order_id, 
-                customer_email, 
-                customer_name, 
-                phone,
-                billing_address,
-                total_amount, 
-                status, 
-                razorpay_order_id, 
-                user_id, 
-                created_at
-            ) VALUES (
-                :order_id, 
-                :customer_email, 
-                :customer_name, 
-                :phone,
-                :billing_address,
-                :total_amount, 
-                :status, 
-                :razorpay_order_id, 
-                :user_id, 
-                NOW()
-            ) RETURNING id, order_id';
-            
-            $stmt = $this->conn->prepare($sql);
-            
-            $params = [
-                ':order_id' => $orderData['order_id'],
-                ':customer_email' => $orderData['customer_email'],
-                ':customer_name' => $orderData['customer_name'],
-                ':phone' => $orderData['phone'] ?? null,
-                ':billing_address' => $orderData['billing_address'] ?? null,
-                ':total_amount' => $orderData['total_amount'],
-                ':status' => $orderData['status'] ?? 'pending',
-                ':razorpay_order_id' => $orderData['razorpay_order_id'] ?? null,
-                ':user_id' => $orderData['user_id'] ?? null
-            ];
-            
-            $stmt->execute($params);
-            $order = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$order) {
-                throw new PDOException('Failed to create order');
-            }
-            
-            // Add order items
-            $orderId = $order['id'];
-            $itemSql = 'INSERT INTO order_items (order_id, note_id, quantity, price) VALUES (:order_id, :note_id, :quantity, :price)';
-            $itemStmt = $this->conn->prepare($itemSql);
-            
-            // Calculate total amount from items
-            $totalAmount = 0;
-            
-            foreach ($items as $item) {
-                // Get note price
-                $noteStmt = $this->conn->prepare('SELECT price FROM notes WHERE id = :note_id');
-                $noteStmt->execute([':note_id' => $item['note_id']]);
-                $note = $noteStmt->fetch(PDO::FETCH_ASSOC);
-                
-                if (!$note) {
-                    throw new PDOException('Invalid note_id: ' . $item['note_id']);
-                }
-                
-                $itemPrice = $note['price'];
-                $totalAmount += $itemPrice * $item['quantity'];
-                
-                $itemStmt->execute([
-                    ':order_id' => $orderId,
-                    ':note_id' => $item['note_id'],
-                    ':quantity' => $item['quantity'],
-                    ':price' => $itemPrice
-                ]);
-            }
-            
-            // Update order total amount
-            $updateSql = 'UPDATE orders SET total_amount = :total_amount WHERE id = :id';
-            $updateStmt = $this->conn->prepare($updateSql);
-            $updateStmt->execute([
-                ':total_amount' => $totalAmount,
-                ':id' => $orderId
-            ]);
-            
-            $this->conn->commit();
-            
-            // Fetch the complete order with items
-            return $this->getById($orderId);
-            
-        } catch (PDOException $e) {
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-            error_log('Order creation failed: ' . $e->getMessage());
-            throw $e;
+        // Begin transaction
+        pg_query($this->conn, "BEGIN");
+        
+        $sql = 'INSERT INTO orders (
+            order_id, 
+            customer_email, 
+            customer_name, 
+            phone,
+            total_amount, 
+            status, 
+            razorpay_order_id, 
+            user_id, 
+            created_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, NOW()
+        ) RETURNING id, order_id';
+        $params = [
+            $orderData['order_id'],
+            $orderData['customer_email'],
+            $orderData['customer_name'],
+            $orderData['phone'] ?? null,
+            $orderData['total_amount'],
+            $orderData['status'] ?? 'pending',
+            $orderData['razorpay_order_id'] ?? null,
+            $orderData['user_id'] ?? null
+        ];
+        $result = pg_query_params($this->conn, $sql, $params);
+        $order = pg_fetch_assoc($result);
+        if (!$order) {
+            pg_query($this->conn, "ROLLBACK");
+            error_log('Failed to create order');
+            return false;
         }
+        $orderId = $order['order_id'];
+        $totalAmount = 0;
+        foreach ($items as $item) {
+            // Get note price
+            $noteSql = 'SELECT price FROM notes WHERE id = $1';
+            $noteResult = pg_query_params($this->conn, $noteSql, [$item['note_id']]);
+            $note = pg_fetch_assoc($noteResult);
+            if (!$note) {
+                pg_query($this->conn, "ROLLBACK");
+                error_log('Invalid note_id: ' . $item['note_id']);
+                return false;
+            }
+            $itemPrice = $note['price'];
+            $totalAmount += $itemPrice;
+            $itemSql = 'INSERT INTO order_items (order_id, note_id, price) VALUES ($1, $2, $3)';
+            pg_query_params($this->conn, $itemSql, [$orderId, $item['note_id'], $itemPrice]);
+        }
+        // Update order total amount
+        $updateSql = 'UPDATE orders SET total_amount = $1 WHERE order_id = $2';
+        pg_query_params($this->conn, $updateSql, [$totalAmount, $orderId]);
+        pg_query($this->conn, "COMMIT");
+        return $this->getById($orderId);
     }
 
     public function getById($orderId)
     {
-        try {
-            // Get order
-            $stmt = $this->conn->prepare('SELECT * FROM orders WHERE id = :id');
-            $stmt->execute([':id' => $orderId]);
-            $order = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$order) {
-                return null;
-            }
-            
-            // Get order items
-            $itemStmt = $this->conn->prepare('SELECT oi.*, n.title, n.description FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = :order_id');
-            $itemStmt->execute([':order_id' => $orderId]);
-            $order['items'] = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            return $order;
-            
-        } catch (PDOException $e) {
-            error_log('Error fetching order: ' . $e->getMessage());
-            throw $e;
+        $sql = 'SELECT * FROM orders WHERE order_id = $1';
+        $result = pg_query_params($this->conn, $sql, [$orderId]);
+        $order = pg_fetch_assoc($result);
+        if (!$order) {
+            return null;
         }
+        $itemSql = 'SELECT oi.*, n.title, n.description FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = $1';
+        $itemResult = pg_query_params($this->conn, $itemSql, [$orderId]);
+        $items = [];
+        while ($row = pg_fetch_assoc($itemResult)) {
+            $items[] = $row;
+        }
+        $order['items'] = $items;
+        return $order;
     }
-    
+
     public function findByRazorpayOrderId($razorpayOrderId)
     {
-        try {
-            $stmt = $this->conn->prepare('SELECT * FROM orders WHERE razorpay_order_id = :razorpay_order_id');
-            $stmt->execute([':razorpay_order_id' => $razorpayOrderId]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
-            
-        } catch (PDOException $e) {
-            error_log('Error finding order by Razorpay ID: ' . $e->getMessage());
-            throw $e;
-        }
+        $sql = 'SELECT * FROM orders WHERE razorpay_order_id = $1';
+        $result = pg_query_params($this->conn, $sql, [$razorpayOrderId]);
+        return pg_fetch_assoc($result);
     }
-    
+
     public function updateStatusByRazorpayOrderId($razorpayOrderId, $status, $paymentData = [])
     {
-        try {
-            $sql = 'UPDATE orders SET status = :status, updated_at = NOW()';
-            $params = [
-                ':status' => $status,
-                ':razorpay_order_id' => $razorpayOrderId
-            ];
-            
-            // Add payment data if provided
-            if (!empty($paymentData['razorpay_payment_id'])) {
-                $sql .= ', razorpay_payment_id = :razorpay_payment_id';
-                $params[':razorpay_payment_id'] = $paymentData['razorpay_payment_id'];
-            }
-            
-            if (!empty($paymentData['razorpay_signature'])) {
-                $sql .= ', razorpay_signature = :razorpay_signature';
-                $params[':razorpay_signature'] = $paymentData['razorpay_signature'];
-            }
-            
-            $sql .= ' WHERE razorpay_order_id = :razorpay_order_id';
-            
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute($params);
-            
-            return $stmt->rowCount() > 0;
-            
-        } catch (PDOException $e) {
-            error_log('Error updating order status: ' . $e->getMessage());
-            throw $e;
+        $sql = 'UPDATE orders SET status = $1, updated_at = NOW()';
+        $params = [$status];
+        $paramIndex = 2;
+        if (!empty($paymentData['razorpay_payment_id'])) {
+            $sql .= ', razorpay_payment_id = $' . $paramIndex;
+            $params[] = $paymentData['razorpay_payment_id'];
+            $paramIndex++;
         }
+        if (!empty($paymentData['razorpay_signature'])) {
+            $sql .= ', razorpay_signature = $' . $paramIndex;
+            $params[] = $paymentData['razorpay_signature'];
+            $paramIndex++;
+        }
+        $sql .= ' WHERE razorpay_order_id = $' . $paramIndex;
+        $params[] = $razorpayOrderId;
+        $result = pg_query_params($this->conn, $sql, $params);
+        return pg_affected_rows($result) > 0;
     }
-    
+
     public function list($filters = [], $pagination = [], $sort = [])
     {
-        try {
-            $where = [];
-            $params = [];
-            
-            // Apply filters
-            if (!empty($filters['status'])) {
-                $where[] = 'status = :status';
-                $params[':status'] = $filters['status'];
-            }
-            
-            if (!empty($filters['user_id'])) {
-                $where[] = 'user_id = :user_id';
-                $params[':user_id'] = $filters['user_id'];
-            }
-            
-            if (!empty($filters['email'])) {
-                $where[] = 'customer_email = :email';
-                $params[':email'] = $filters['email'];
-            }
-            
-            // Build query
-            $sql = 'SELECT * FROM orders';
-            
-            if (!empty($where)) {
-                $sql .= ' WHERE ' . implode(' AND ', $where);
-            }
-            
-            // Apply sorting
-            if (!empty($sort['field']) && !empty($sort['direction'])) {
-                $validFields = ['id', 'created_at', 'total_amount', 'status'];
-                $validDirections = ['ASC', 'DESC'];
-                
-                if (in_array($sort['field'], $validFields) && in_array(strtoupper($sort['direction']), $validDirections)) {
-                    $sql .= ' ORDER BY ' . $sort['field'] . ' ' . strtoupper($sort['direction']);
-                }
-            } else {
-                $sql .= ' ORDER BY created_at DESC';
-            }
-            
-            // Apply pagination
-            if (!empty($pagination['limit'])) {
-                $sql .= ' LIMIT :limit';
-                $params[':limit'] = (int)$pagination['limit'];
-                
-                if (!empty($pagination['offset'])) {
-                    $sql .= ' OFFSET :offset';
-                    $params[':offset'] = (int)$pagination['offset'];
-                }
-            }
-            
-            $stmt = $this->conn->prepare($sql);
-            
-            // Bind parameters
-            foreach ($params as $key => $value) {
-                $paramType = is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR;
-                $stmt->bindValue($key, $value, $paramType);
-            }
-            
-            $stmt->execute();
-            $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // Get total count for pagination
-            $countSql = 'SELECT COUNT(*) as total FROM orders';
-            if (!empty($where)) {
-                $countSql .= ' WHERE ' . implode(' AND ', $where);
-            }
-            
-            $countStmt = $this->conn->prepare($countSql);
-            
-            // Remove limit/offset params for count query
-            $countParams = $params;
-            unset($countParams[':limit'], $countParams[':offset']);
-            
-            $countStmt->execute($countParams);
-            $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
-            
-            return [
-                'data' => $orders,
-                'total' => (int)$total,
-                'limit' => $pagination['limit'] ?? null,
-                'offset' => $pagination['offset'] ?? 0
-            ];
-            
-        } catch (PDOException $e) {
-            error_log('Error listing orders: ' . $e->getMessage());
-            throw $e;
+        $where = [];
+        $params = [];
+        $paramIndex = 1;
+        if (!empty($filters['status'])) {
+            $where[] = 'status = $' . $paramIndex;
+            $params[] = $filters['status'];
+            $paramIndex++;
         }
+        if (!empty($filters['user_id'])) {
+            $where[] = 'user_id = $' . $paramIndex;
+            $params[] = $filters['user_id'];
+            $paramIndex++;
+        }
+        if (!empty($filters['email'])) {
+            $where[] = 'customer_email = $' . $paramIndex;
+            $params[] = $filters['email'];
+            $paramIndex++;
+        }
+        $sql = 'SELECT * FROM orders';
+        if (!empty($where)) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        if (!empty($sort['field']) && !empty($sort['direction'])) {
+            $validFields = ['id', 'created_at', 'total_amount', 'status'];
+            $validDirections = ['ASC', 'DESC'];
+            if (in_array($sort['field'], $validFields) && in_array(strtoupper($sort['direction']), $validDirections)) {
+                $sql .= ' ORDER BY ' . $sort['field'] . ' ' . strtoupper($sort['direction']);
+            }
+        } else {
+            $sql .= ' ORDER BY created_at DESC';
+        }
+        if (!empty($pagination['limit'])) {
+            $sql .= ' LIMIT $' . $paramIndex;
+            $params[] = (int)$pagination['limit'];
+            $paramIndex++;
+            if (!empty($pagination['offset'])) {
+                $sql .= ' OFFSET $' . $paramIndex;
+                $params[] = (int)$pagination['offset'];
+                $paramIndex++;
+            }
+        }
+        $result = pg_query_params($this->conn, $sql, $params);
+        $orders = [];
+        while ($row = pg_fetch_assoc($result)) {
+            $orders[] = $row;
+        }
+        $countSql = 'SELECT COUNT(*) as total FROM orders';
+        if (!empty($where)) {
+            $countSql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $countResult = pg_query_params($this->conn, $countSql, $params);
+        $totalRow = pg_fetch_assoc($countResult);
+        $total = $totalRow ? $totalRow['total'] : 0;
+        return [
+            'data' => $orders,
+            'total' => (int)$total,
+            'limit' => $pagination['limit'] ?? null,
+            'offset' => $pagination['offset'] ?? 0
+        ];
     }
 }

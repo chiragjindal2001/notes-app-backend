@@ -44,7 +44,7 @@ class CartController
         }
         
         // Check required fields
-        $required = ['note_id', 'quantity'];
+        $required = ['note_id'];
         foreach ($required as $field) {
             if (empty($input[$field])) {
                 http_response_code(400);
@@ -64,7 +64,6 @@ class CartController
             // Prepare data for cart operation
             $data = [
                 'note_id' => $input['note_id'],
-                'quantity' => $input['quantity'],
                 'user_id' => $user_id
             ];
             
@@ -174,19 +173,12 @@ class CartController
         }
 
         $input = json_decode(file_get_contents('php://input'), true);
-        if (!is_array($input) || !isset($input['quantity'])) {
+        if (!is_array($input)) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Missing or invalid quantity']);
             return;
         }
         
-        $quantity = (int)$input['quantity'];
-        if ($quantity < 1) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Quantity must be at least 1']);
-            return;
-        }
-
         // Get database connection
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
@@ -205,7 +197,7 @@ class CartController
             }
             
             // Update the item
-            $updatedItem = $cartModel->updateItem($id, $quantity);
+            $updatedItem = $cartModel->updateItem($id, 1); // Assuming quantity is 1 for update
             
             $response = [
                 'success' => true,
@@ -226,6 +218,7 @@ class CartController
 
     public static function deleteCartItem($id)
     {
+        error_log('DELETE /api/cart/:id headers: ' . json_encode(getallheaders()));
         if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
@@ -234,20 +227,24 @@ class CartController
 
         // Get user ID from JWT
         $user_id = null;
+        // Try to get token from Authorization header or cookie
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        
+        $token = null;
         if ($authHeader && preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
             $token = $matches[1];
+        } elseif (isset($_COOKIE['user_token'])) {
+            $token = $_COOKIE['user_token'];
+        }
+        if ($token) {
             try {
                 $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && isset($user['sub'])) {  // 'sub' contains the user ID in JWT
-                    $user_id = $user['sub'];
+                if ($user && (isset($user['user_id']) || isset($user['sub']))) {
+                    $user_id = $user['user_id'] ?? $user['sub'];
                 }
             } catch (\Exception $e) {
                 error_log('JWT validation error in deleteCartItem: ' . $e->getMessage());
             }
         }
-        
         if (!$user_id) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
