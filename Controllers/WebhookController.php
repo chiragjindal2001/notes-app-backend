@@ -43,3 +43,47 @@ class WebhookController
         echo json_encode($response);
     }
 }
+
+
+
+order_id
+razorpay_order_id
+
+notes = {
+    order_id: razorpay_order_id,
+}
+
+mappping
+
+options = {
+
+    api_key: 
+    ordeR_id = razorpay_order_id,
+    prefill ,
+    status_hanler = funciotn() {
+        window.location.href = "/payment/?order_id=" . order_id;
+    }
+
+
+}
+ new razorpay(options;)
+
+
+
+ backedn:
+ order_id = razorpay_order_id,
+
+ orderdetails = 
+
+ details fetch 
+ payments = 
+
+}
+
+
+order_i  is_active;
+
+
+rdirect = success
+faile d= failed
+pending

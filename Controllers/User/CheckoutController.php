@@ -41,11 +41,13 @@ class CheckoutController
         }
 
         // Generate order_id
-        $order_id = 'ORD-' . time() . '-' . rand(100,999);
+        $order_id = $user_id . '-ORD-' . time() . '-' . rand(100,999);
+        $customer_details = $input['customer_info'];
+        $customer_name = trim(($customer_details['first_name'] ?? '') . ' ' . ($customer_details['last_name'] ?? ''));
         $orderData = [
             'order_id' => $order_id,
-            'customer_email' => $input['customer_info']['email'],
-            'customer_name' => trim(($input['customer_info']['first_name'] ?? '') . ' ' . ($input['customer_info']['last_name'] ?? '')),
+            'customer_email' => $customer_details['email'],
+            'customer_name' => $customer_name,
             'phone' => $input['customer_info']['phone'],
             'total_amount' => 0, // will be updated in the model
             'status' => 'pending',
@@ -68,16 +70,22 @@ class CheckoutController
         $razorpay = $config['razorpay'];
         $data = [
             'amount' => $amount_in_paise,
-            'currency' => $currency,
+            'currency' => 'INR',
             'receipt' => $order_id,
-            'payment_capture' => 1
+            'payment_capture' => 1,
+            'notes' => [
+                'order_id' => $order_id
+            ]
         ];
         $ch = curl_init('https://api.razorpay.com/v1/orders');
         curl_setopt($ch, CURLOPT_USERPWD, $razorpay['key_id'] . ':' . $razorpay['key_secret']);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        // Define custom log file for Razorpay debug
+        
         $result = curl_exec($ch);
         $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
@@ -88,7 +96,7 @@ class CheckoutController
             return;
         }
         // Update order with razorpay_order_id
-        pg_query_params($pdo, 'UPDATE orders SET razorpay_order_id = $1 WHERE id = $2', [$razorpay_order['id'], $db_order_id]);
+        pg_query_params($pdo, 'UPDATE orders SET razorpay_order_id = $1 WHERE order_id = $2', [$razorpay_order['id'], $order_id]);
 
         $response = [
             'success' => true,
@@ -97,11 +105,10 @@ class CheckoutController
                 'razorpay_order_id' => $razorpay_order['id'],
                 'order_id' => $order_id,
                 'amount' => $amount_in_paise,
-                'currency' => $currency,
                 'key' => $razorpay['key_id'],
                 'customer' => [
                     'name' => $customer_name,
-                    'email' => $customer['email']
+                    'email' => $customer_details['email']
                 ]
             ]
         ];
@@ -126,49 +133,74 @@ class CheckoutController
         }
 
         // Get Razorpay config
-        $razorpayConfig = Config::razorpay();
-        $razorpay_key_secret = $razorpayConfig['key_secret'];
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $razorpay_key_secret = $config['razorpay']['key_secret'];
 
         // Verify the payment signature
         $generated_signature = hash_hmac('sha256', $input['razorpay_order_id'] . '|' . $input['razorpay_payment_id'], $razorpay_key_secret);
 
         if ($generated_signature === $input['razorpay_signature']) {
-            // Payment signature is valid
-            // Update your database here to mark the order as paid
-            
-            try {
-                // Get database connection
-                $pdo = Database::getConnection();
-                $orderModel = new Order($pdo);
-                
-                // Update order status to 'paid'
-                $updated = $orderModel->updateStatusByRazorpayOrderId(
-                    $input['razorpay_order_id'],
-                    'paid',
-                    [
-                        'razorpay_payment_id' => $input['razorpay_payment_id'],
-                        'razorpay_signature' => $input['razorpay_signature']
-                    ]
-                );
-                
-                if ($updated) {
-                    http_response_code(200);
+            // Fetch payment details from Razorpay
+            $payment_id = $input['razorpay_payment_id'];
+            $razorpay_order_id = $input['razorpay_order_id'];
+            $razorpay_key_id = $config['razorpay']['key_id'];
+            $ch = curl_init("https://api.razorpay.com/v1/payments/$payment_id");
+            curl_setopt($ch, CURLOPT_USERPWD, $razorpay_key_id . ':' . $razorpay_key_secret);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            $payment_result = curl_exec($ch);
+            curl_close($ch);
+            $payment = json_decode($payment_result, true);
+            if (
+                $payment &&
+                isset($payment['status'], $payment['order_id']) &&
+                $payment['status'] === 'captured' &&
+                $payment['order_id'] === $razorpay_order_id
+            ) {
+                try {
+                    // Get database connection
+                    $pdo = Database::getConnection();
+                    pg_query($pdo, 'BEGIN');
+                    $orderModel = new Order($pdo);
+                    // Update order status to 'paid'
+                    $updated = $orderModel->updateStatusByRazorpayOrderId(
+                        $razorpay_order_id,
+                        'paid'
+                    );
+                    // Fetch order_id from orders table
+                    $orderRow = $orderModel->findByRazorpayOrderId($razorpay_order_id);
+                    if ($orderRow && isset($orderRow['order_id'])) {
+                        $orderModel->upsertPaymentStatus($orderRow['order_id'], $payment_id, $payment['status'], $payment['method'] ?? null);
+                    }
+                    if ($updated) {
+                        pg_query($pdo, 'COMMIT');
+                        http_response_code(200);
+                        echo json_encode([
+                            'success' => true,
+                            'message' => 'Payment verified and order updated successfully',
+                            'payment_id' => $input['razorpay_payment_id']
+                        ]);
+                        return;
+                    } else {
+                        throw new \Exception('Failed to update order status');
+                    }
+                } catch (\Exception $e) {
+                    error_log('Error updating order status: ' . $e->getMessage());
+                    http_response_code(500);
                     echo json_encode([
-                        'success' => true,
-                        'message' => 'Payment verified and order updated successfully',
-                        'payment_id' => $input['razorpay_payment_id']
+                        'success' => false,
+                        'message' => 'Payment verified but failed to update order status',
+                        'error' => $e->getMessage()
                     ]);
-                } else {
-                    throw new \Exception('Failed to update order status');
                 }
-                
-            } catch (\Exception $e) {
-                error_log('Error updating order status: ' . $e->getMessage());
-                http_response_code(500);
+            } else {
+                http_response_code(400);
                 echo json_encode([
                     'success' => false,
-                    'message' => 'Payment verified but failed to update order status',
-                    'error' => $e->getMessage()
+                    'message' => 'Payment not captured or order_id mismatch',
+                    'payment_status' => $payment['status'] ?? null,
+                    'payment_order_id' => $payment['order_id'] ?? null,
+                    'expected_order_id' => $razorpay_order_id
                 ]);
             }
         } else {
@@ -182,23 +214,7 @@ class CheckoutController
             echo json_encode(['success' => false, 'message' => 'Order not found']);
             return;
         }
-        $response = [
-            'success' => true,
-            'message' => 'Payment verified successfully',
-            'data' => [
-                'order' => [
-                    'id' => $order['order_id'],
-                    'status' => 'completed',
-                    'total_amount' => (float)$order['total_amount'],
-                    'customer_email' => $order['customer_email'],
-                    'customer_name' => $order['customer_name'],
-                    'completed_at' => $order['completed_at']
-                ],
-                'payment_id' => $input['razorpay_payment_id']
-            ]
-        ];
-        header('Content-Type: application/json');
-        echo json_encode($response);
+        return;
     }
 
     public static function verifySignature()

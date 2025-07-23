@@ -99,23 +99,26 @@ class Order
 
     public function updateStatusByRazorpayOrderId($razorpayOrderId, $status, $paymentData = [])
     {
-        $sql = 'UPDATE orders SET status = $1, updated_at = NOW()';
-        $params = [$status];
-        $paramIndex = 2;
-        if (!empty($paymentData['razorpay_payment_id'])) {
-            $sql .= ', razorpay_payment_id = $' . $paramIndex;
-            $params[] = $paymentData['razorpay_payment_id'];
-            $paramIndex++;
-        }
-        if (!empty($paymentData['razorpay_signature'])) {
-            $sql .= ', razorpay_signature = $' . $paramIndex;
-            $params[] = $paymentData['razorpay_signature'];
-            $paramIndex++;
-        }
-        $sql .= ' WHERE razorpay_order_id = $' . $paramIndex;
-        $params[] = $razorpayOrderId;
+        // Only update status in orders table
+        $sql = 'UPDATE orders SET status = $1, updated_at = NOW() WHERE razorpay_order_id = $2';
+        $params = [$status, $razorpayOrderId];
         $result = pg_query_params($this->conn, $sql, $params);
         return pg_affected_rows($result) > 0;
+    }
+
+    // New method to insert or update payment status
+    public function upsertPaymentStatus($orderId, $razorpayPaymentId, $status, $method = null)
+    {
+        // Try to update first
+        $updateSql = 'UPDATE payment_status SET status = $1, method = $2, modified_at = NOW() WHERE order_id = $3 AND razorpay_payment_id = $4';
+        $updateResult = pg_query_params($this->conn, $updateSql, [$status, $method, $orderId, $razorpayPaymentId]);
+        if (pg_affected_rows($updateResult) > 0) {
+            return true;
+        }
+        // If not updated, insert
+        $insertSql = 'INSERT INTO payment_status (order_id, razorpay_payment_id, status, method, created_at, modified_at) VALUES ($1, $2, $3, $4, NOW(), NOW())';
+        $insertResult = pg_query_params($this->conn, $insertSql, [$orderId, $razorpayPaymentId, $status, $method]);
+        return pg_affected_rows($insertResult) > 0;
     }
 
     public function list($filters = [], $pagination = [], $sort = [])

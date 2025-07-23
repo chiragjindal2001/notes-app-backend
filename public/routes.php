@@ -128,6 +128,9 @@ if ($uri === '/' || $uri === '/hello') {
 } elseif ($uri === '/api/admin/dashboard/stats' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once dirname(__DIR__) . '/Controllers/Admin/AdminDashboardController.php';
     AdminDashboardController::stats();
+} elseif ($uri === '/api/my-notes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once dirname(__DIR__) . '/Controllers/User/NotesController.php';
+    NotesController::getMyNotes();
 } else {
 http_response_code(404);
 echo '404 Not Found';
