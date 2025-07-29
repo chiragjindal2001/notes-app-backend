@@ -225,31 +225,28 @@ class CartController
             return;
         }
 
-        // Get user ID from JWT
+        // Extract user_id from JWT if present
+        require_once dirname(__DIR__, 2) . '/Controllers/BaseController.php';
+        $baseController = new \BaseController();
+        $token = $baseController->getBearerToken();
         $user_id = null;
-        // Try to get token from Authorization header or cookie
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        $token = null;
-        if ($authHeader && preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            $token = $matches[1];
-        } elseif (isset($_COOKIE['user_token'])) {
-            $token = $_COOKIE['user_token'];
-        }
         if ($token) {
             try {
                 $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && (isset($user['user_id']) || isset($user['sub']))) {
-                    $user_id = $user['user_id'] ?? $user['sub'];
+                if ($user && (isset($user['sub']) || isset($user['user_id']))) {
+                    $user_id = $user['sub'] ?? $user['user_id'];
                 }
             } catch (\Exception $e) {
-                error_log('JWT validation error in deleteCartItem: ' . $e->getMessage());
+                error_log('JWT validation error: ' . $e->getMessage());
             }
         }
+        // Require user to be logged in for cart operations
         if (!$user_id) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             return;
         }
+
 
         // Get database connection
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
@@ -300,27 +297,27 @@ class CartController
             return;
         }
 
-        // Get user ID from JWT
-        $user_id = null;
-        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-        
-        if ($authHeader && preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            $token = $matches[1];
-            try {
-                $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && isset($user['sub'])) {  // 'sub' contains the user ID in JWT
-                    $user_id = $user['sub'];
-                }
-            } catch (\Exception $e) {
-                error_log('JWT validation error in clearCart: ' . $e->getMessage());
-            }
-        }
-        
-        if (!$user_id) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Authentication required']);
-            return;
-        }
+         // Extract user_id from JWT if present
+         require_once dirname(__DIR__, 2) . '/Controllers/BaseController.php';
+         $baseController = new \BaseController();
+         $token = $baseController->getBearerToken();
+         $user_id = null;
+         if ($token) {
+             try {
+                 $user = \Helpers\UserAuthHelper::validateJWT($token);
+                 if ($user && (isset($user['sub']) || isset($user['user_id']))) {
+                     $user_id = $user['sub'] ?? $user['user_id'];
+                 }
+             } catch (\Exception $e) {
+                 error_log('JWT validation error: ' . $e->getMessage());
+             }
+         }
+         // Require user to be logged in for cart operations
+         if (!$user_id) {
+             http_response_code(401);
+             echo json_encode(['success' => false, 'message' => 'Authentication required']);
+             return;
+         }
         
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';

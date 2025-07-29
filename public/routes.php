@@ -74,15 +74,30 @@ if ($uri === '/' || $uri === '/hello') {
 } elseif ($uri === '/api/auth/refresh' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
     AuthController::refresh();
+} elseif ($uri === '/api/auth/verify-email' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
+    AuthController::verifyEmail();
+} elseif ($uri === '/api/auth/resend-verification' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
+    AuthController::resendVerification();
+} elseif ($uri === '/api/auth/forgot-password' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
+    AuthController::forgotPassword();
+} elseif ($uri === '/api/auth/reset-password' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
+    AuthController::resetPassword();
+} elseif ($uri === '/api/auth/validate-reset-token' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once dirname(__DIR__) . '/Controllers/User/AuthController.php';
+    AuthController::validateResetToken();
 } elseif ($uri === '/api/webhooks/razorpay' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once dirname(__DIR__) . '/Controllers/WebhookController.php';
     WebhookController::handleRazorpayWebhook();
 } elseif (preg_match('#^/api/download/pdf/(\d+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once dirname(__DIR__) . '/Controllers/User/DownloadController.php';
     DownloadController::downloadPdf((int)$matches[1]);
-} elseif (preg_match('#^/api/downloads/([\w\-]+)/([\d]+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+} elseif (preg_match('#^/api/downloads/(\d+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once dirname(__DIR__) . '/Controllers/User/DownloadController.php';
-    DownloadController::getDownloadLink($matches[1], (int)$matches[2]);
+    DownloadController::downloadNote((int)$matches[1]);
 } elseif ($uri === '/api/contact' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once dirname(__DIR__) . '/Controllers/User/ContactController.php';
     ContactController::submitContact();

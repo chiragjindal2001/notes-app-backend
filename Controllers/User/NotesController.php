@@ -157,7 +157,7 @@ class NotesController
         // Fetch note details
         $in = implode(',', array_fill(0, count($note_ids), '$' . ($i = 1))); $i = 1;
         foreach ($note_ids as &$id) { $id = (int)$id; }
-        $noteSql = 'SELECT id, title, subject, price, preview_image FROM notes WHERE id IN (' . implode(',', array_map(function($i){static $j=1;return '$'.($j++);},$note_ids)) . ')';
+        $noteSql = 'SELECT id, title, subject, price, preview_image FROM notes WHERE id IN (' . implode(',', array_map(function($i){static $j=1;return '$'.($j++);},$note_ids)) . ') AND is_active = TRUE';
         $noteResult = pg_query_params($conn, $noteSql, $note_ids);
         $notes = [];
         while ($note = pg_fetch_assoc($noteResult)) {

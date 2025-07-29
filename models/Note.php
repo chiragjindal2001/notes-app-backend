@@ -34,6 +34,7 @@ class Note
             $idx++;
         }
         $where[] = 'status = \'active\'';
+        $where[] = 'is_active = TRUE';
         $sql = 'SELECT * FROM notes';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -58,13 +59,13 @@ class Note
 
     public function getById($id)
     {
-        $result = pg_query_params($this->conn, 'SELECT * FROM notes WHERE id = $1', [$id]);
+        $result = pg_query_params($this->conn, 'SELECT * FROM notes WHERE id = $1 AND is_active = TRUE', [$id]);
         return pg_fetch_assoc($result);
     }
 
     public function getSubjects()
     {
-        $result = pg_query($this->conn, "SELECT subject, COUNT(*) as count FROM notes WHERE status = 'active' GROUP BY subject ORDER BY count DESC");
+        $result = pg_query($this->conn, "SELECT subject, COUNT(*) as count FROM notes WHERE status = 'active' AND is_active = TRUE GROUP BY subject ORDER BY count DESC");
         $subjects = [];
         while ($row = pg_fetch_assoc($result)) {
             $subjects[] = $row;

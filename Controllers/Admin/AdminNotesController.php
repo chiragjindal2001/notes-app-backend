@@ -294,17 +294,18 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $result = pg_query_params($conn, 'DELETE FROM notes WHERE id = $1 RETURNING id', [$id]);
-        $deleted = pg_fetch_assoc($result);
-        if (!$deleted) {
+        // Soft delete: set is_active = false
+        $result = pg_query_params($conn, 'UPDATE notes SET is_active = FALSE WHERE id = $1 RETURNING id, is_active', [$id]);
+        $updated = pg_fetch_assoc($result);
+        if (!$updated) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Note not found']);
             return;
         }
         $response = [
             'success' => true,
-            'message' => 'Note deleted successfully',
-            'data' => $deleted
+            'message' => 'Note deactivated (soft deleted) successfully',
+            'data' => $updated
         ];
         header('Content-Type: application/json');
         echo json_encode($response);

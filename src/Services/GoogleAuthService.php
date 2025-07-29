@@ -216,6 +216,7 @@ class GoogleAuthService {
                     'email' => $userInfo->email,
                     'image' => $userInfo->picture ?? null,
                     'email_verified' => $userInfo->verifiedEmail ? 1 : 0,
+                    'is_verified' => true, // Google users are automatically verified
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
                 

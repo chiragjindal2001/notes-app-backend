@@ -5,6 +5,7 @@ use Helpers\Config;
 use Helpers\Database;
 use Models\Order;
 use Helpers\UserAuthHelper;
+use Services\EmailService;
 
 class CheckoutController
 {
@@ -37,6 +38,11 @@ class CheckoutController
             $user = UserAuthHelper::validateJWT($token);
             if ($user && isset($user['user_id'])) {
                 $user_id = $user['user_id'];
+            }
+            else{
+                http_response_code(401);
+                echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                return;
             }
         }
 
@@ -173,6 +179,30 @@ class CheckoutController
                         $orderModel->upsertPaymentStatus($orderRow['order_id'], $payment_id, $payment['status'], $payment['method'] ?? null);
                     }
                     if ($updated) {
+                        // Send payment confirmation email
+                        try {
+                            $emailService = new EmailService();
+                            $orderDetails = $orderModel->findByRazorpayOrderId($razorpay_order_id);
+                            
+                            if ($orderDetails && isset($orderDetails['user_id'])) {
+                                $userEmail = $emailService->getUserEmail($orderDetails['user_id']);
+                                $userName = $emailService->getUserName($orderDetails['user_id']);
+                                
+                                if ($userEmail) {
+                                    $emailData = [
+                                        'order_id' => $orderDetails['order_id'],
+                                        'payment_id' => $input['razorpay_payment_id'],
+                                        'total_amount' => $orderDetails['total_amount']
+                                    ];
+                                    
+                                    $emailService->sendPaymentConfirmation($userEmail, $userName, $emailData);
+                                }
+                            }
+                        } catch (\Exception $emailError) {
+                            // Log email error but don't fail the payment verification
+                            error_log('Failed to send payment confirmation email: ' . $emailError->getMessage());
+                        }
+                        
                         pg_query($pdo, 'COMMIT');
                         http_response_code(200);
                         echo json_encode([

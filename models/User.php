@@ -15,9 +15,9 @@ class User
     public function create($data)
     {
         if (isset($data['password_hash'])) {
-            $sql = 'INSERT INTO users (email, password_hash, name, google_id, image, email_verified, created_at) 
-                    VALUES ($1, $2, $3, $4, $5, $6, $7) 
-                    RETURNING id, email, name, google_id, image, email_verified, created_at';
+            $sql = 'INSERT INTO users (email, password_hash, name, google_id, image, email_verified, is_verified, created_at) 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+                    RETURNING id, email, name, google_id, image, email_verified, is_verified, created_at';
             $result = pg_query_params($this->conn, $sql, [
                 $data['email'] ?? null,
                 $data['password_hash'] ?? null,
@@ -25,18 +25,20 @@ class User
                 $data['google_id'] ?? null,
                 $data['image'] ?? null,
                 $data['email_verified'] ?? false,
+                $data['is_verified'] ?? false,
                 $data['created_at'] ?? date('Y-m-d H:i:s')
             ]);
         } else {
-            $sql = 'INSERT INTO users (email, name, google_id, image, email_verified, created_at) 
-                    VALUES ($1, $2, $3, $4, $5, $6) 
-                    RETURNING id, email, name, google_id, image, email_verified, created_at';
+            $sql = 'INSERT INTO users (email, name, google_id, image, email_verified, is_verified, created_at) 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7) 
+                    RETURNING id, email, name, google_id, image, email_verified, is_verified, created_at';
             $result = pg_query_params($this->conn, $sql, [
                 $data['email'] ?? null,
                 $data['name'] ?? null,
                 $data['google_id'] ?? null,
                 $data['image'] ?? null,
                 $data['email_verified'] ?? false,
+                $data['is_verified'] ?? false,
                 $data['created_at'] ?? date('Y-m-d H:i:s')
             ]);
         }
@@ -94,9 +96,10 @@ class User
                     name = COALESCE($2, name),
                     email = COALESCE($3, email),
                     image = COALESCE($4, image),
-                    email_verified = COALESCE($5, email_verified)
+                    email_verified = COALESCE($5, email_verified),
+                    is_verified = TRUE
                     WHERE id = $6 
-                    RETURNING id, google_id, name, email, image, email_verified';
+                    RETURNING id, google_id, name, email, image, email_verified, is_verified';
             
             $result = pg_query_params($this->conn, $sql, [
                 $googleId,
@@ -108,7 +111,7 @@ class User
             ]);
         } else {
             // Just update the Google ID if no additional info is provided
-            $sql = 'UPDATE users SET google_id = $1 WHERE id = $2 RETURNING id, google_id';
+            $sql = 'UPDATE users SET google_id = $1, is_verified = TRUE WHERE id = $2 RETURNING id, google_id, is_verified';
             $result = pg_query_params($this->conn, $sql, [$googleId, $userId]);
         }
         

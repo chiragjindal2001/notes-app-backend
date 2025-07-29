@@ -1,4 +1,7 @@
 <?php
+use Helpers\UserAuthHelper;
+use Helpers\Config;
+use Helpers\Database;
 class DownloadController
 {
     // Secure PDF download endpoint: /api/download/pdf/{note_id}?token=...
@@ -9,39 +12,30 @@ class DownloadController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $token = $_GET['token'] ?? null;
-        if (!$token) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing token']);
-            return;
-        }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) {
+        
+        // Extract user_id from JWT if present
+        $user_id = null;
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? null);
+        
+        if ($authHeader && preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+            $token = $matches[1];
+            $user = \Helpers\UserAuthHelper::validateJWT($token);
+            if ($user && isset($user['user_id'])) {
+                $user_id = $user['user_id'];
+            } else {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+                return;
+            }
+        } else {
             http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Invalid token']);
+            echo json_encode(['success' => false, 'message' => 'Missing or invalid Authorization header']);
             return;
         }
-        $header = $parts[0];
-        $payload = $parts[1];
-        $signature = $parts[2];
-        $expected_sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload", $jwt_secret, true)), '+/', '-_'), '=');
-        if (!hash_equals($expected_sig, $signature)) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Invalid token signature']);
-            return;
-        }
-        $payload_data = json_decode(base64_decode($payload), true);
-        if (!$payload_data || $payload_data['note_id'] != $note_id) {
-            http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'Token does not match note']);
-            return;
-        }
+
         // Check order/note access if needed (reuse logic from getDownloadLink if required)
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Note.php';
-        $conn = Db::getConnection($config);
+        require_once dirname(__DIR__, 2) . '/models/Note.php';
+        $conn = Database::getConnection();
         $noteModel = new Note($conn);
         $note = $noteModel->getById($note_id);
         if (!$note || empty($note['file_url'])) {
@@ -63,68 +57,47 @@ class DownloadController
         readfile($abs_path);
         exit;
     }
-    public static function getDownloadLink($order_id, $note_id)
+    // New: Secure download endpoint: /api/downloads/{note_id}
+    public static function downloadNote($note_id)
     {
         if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $token = $_GET['token'] ?? null;
-        if (!$token) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing token']);
-            return;
-        }
-        // JWT validation (simple, for demo)
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) {
+        // Get JWT from Authorization header
+        $headers = getallheaders();
+        $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? null;
+        if (!$authHeader || !preg_match('/Bearer\s(.+)/', $authHeader, $matches)) {
             http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Invalid token']);
+            echo json_encode(['success' => false, 'message' => 'Missing or invalid Authorization header']);
             return;
         }
-        $header = $parts[0];
-        $payload = $parts[1];
-        $signature = $parts[2];
-        $expected_sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload", $jwt_secret, true)), '+/', '-_'), '=');
-        if (!hash_equals($expected_sig, $signature)) {
+        $token = $matches[1];
+        $user = \Helpers\UserAuthHelper::validateJWT($token);
+        if (!$user || empty($user['user_id'])) {
             http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Invalid token signature']);
+            echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             return;
         }
-        $payload_data = json_decode(base64_decode($payload), true);
-        if (!$payload_data || $payload_data['order_id'] !== $order_id || $payload_data['note_id'] !== (int)$note_id) {
-            http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'Token does not match order or note']);
-            return;
-        }
-        // Check order and note access
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Download.php';
-        $pdo = Db::getConnection($config);
+        $user_id = $user['user_id'];
+        // Check if user has purchased the note
+        require_once dirname(__DIR__, 2) . '/models/Download.php';
+        $pdo = Database::getConnection();
         $downloadModel = new Download($pdo);
-        $row = $downloadModel->getDownloadData($order_id, $note_id);
-        if (!$row || $row['status'] !== 'completed') {
+        $row = $downloadModel->userHasPurchasedNote($user_id, $note_id);
+        if (!$row) {
             http_response_code(403);
-            echo json_encode(['success' => false, 'message' => 'Order not found or not completed']);
+            echo json_encode(['success' => false, 'message' => 'You have not purchased this note or order not completed']);
             return;
         }
-        // Generate secure download URL (placeholder)
-        $download_url = $row['file_url'] ?? 'https://storage.example.com/notes/file.pdf';
-        $expires_at = gmdate('Y-m-d\TH:i:s\Z', time() + 3600);
+        $download_url = dirname(__DIR__, 2) .  $row['file_url'] ?? null;
         $filename = $row['title'] ? strtolower(str_replace(' ', '-', $row['title'])) . '-notes.pdf' : 'note.pdf';
-        $response = [
-            'success' => true,
-            'message' => 'Download link generated successfully',
-            'data' => [
-                'download_url' => $download_url,
-                'expires_at' => $expires_at,
-                'filename' => $filename
-            ]
-        ];
-        header('Content-Type: application/json');
-        echo json_encode($response);
+        
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . filesize($download_url));
+        readfile($download_url);
+        exit;
     }
 }

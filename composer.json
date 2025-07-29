@@ -6,7 +6,8 @@
         "php": ">=7.4",
         "google/apiclient": "^2.12",
         "firebase/php-jwt": "^6.4",
-        "vlucas/phpdotenv": "^5.6"
+        "vlucas/phpdotenv": "^5.6",
+        "phpmailer/phpmailer": "^6.10"
     },
     "autoload": {
         "psr-4": {
