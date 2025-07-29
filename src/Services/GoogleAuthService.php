@@ -6,6 +6,8 @@ require_once __DIR__ . '/../../models/User.php';
 use Helpers\Config;
 use Helpers\JwtService;
 use Helpers\Database;
+use Google_Client;
+use Google_Service_Oauth2;
 
 class GoogleAuthService {
     private $client;
@@ -15,7 +17,7 @@ class GoogleAuthService {
     public function __construct() {
         $this->config = Config::google();
         
-        $this->client = new Google_Client([
+        $this->client = new \Google_Client([
             'client_id' => $this->config['client_id'],
             'client_secret' => $this->config['client_secret'],
             'redirect_uri' => $this->config['redirect_uri'],
@@ -36,28 +38,21 @@ class GoogleAuthService {
 
     public function verifyIdToken($idToken) {
         try {
-            error_log('Verifying Google ID token');
-            // Create a new HTTP client with SSL verification disabled
             $httpClient = new \GuzzleHttp\Client([
                 'verify' => false // Disable SSL verification (for development only)
             ]);
-            
-            // Set the HTTP client before verifying the token
             $this->client->setHttpClient($httpClient);
             
             $payload = $this->client->verifyIdToken($idToken);
             
             if (!$payload) {
-                $error = 'Invalid ID token: Verification returned false';
-                error_log($error);
-                throw new \Exception($error);
+                throw new \Exception('Failed to verify ID token');
             }
             
-            error_log('Token verified successfully for user: ' . ($payload['email'] ?? 'unknown'));
             return $payload;
             
         } catch (\Exception $e) {
-            $error = 'Token verification failed: ' . $e->getMessage();
+            $error = 'Failed to verify ID token: ' . $e->getMessage();
             error_log($error);
             error_log('Stack trace: ' . $e->getTraceAsString());
             throw new \Exception($error);
@@ -66,18 +61,20 @@ class GoogleAuthService {
 
     public function getUserInfo($accessToken) {
         try {
-            error_log('Fetching user info from Google API');
+            $httpClient = new \GuzzleHttp\Client([
+                'verify' => false // Disable SSL verification (for development only)
+            ]);
+            $this->client->setHttpClient($httpClient);
             $this->client->setAccessToken($accessToken);
+            
+            // Use Google OAuth2 service to get user info
             $oauth2Service = new Google_Service_Oauth2($this->client);
             $userInfo = $oauth2Service->userinfo->get();
             
             if (!$userInfo) {
-                $error = 'Failed to get user info: Empty response from Google API';
-                error_log($error);
-                throw new \Exception($error);
+                throw new \Exception('Failed to fetch user info');
             }
             
-            error_log('Successfully retrieved user info for: ' . ($userInfo->email ?? 'unknown'));
             return $userInfo;
             
         } catch (\Exception $e) {
@@ -90,8 +87,6 @@ class GoogleAuthService {
 
     public function authenticate($idToken, $accessToken = '', $userData = []) {
         try {
-            error_log('Starting Google OAuth authentication');
-            
             // Create a new HTTP client with SSL verification disabled
             $httpClient = new \GuzzleHttp\Client([
                 'verify' => false // Disable SSL verification (for development only)
@@ -102,7 +97,6 @@ class GoogleAuthService {
             $payload = $this->verifyIdToken($idToken);
             
             // Get additional user info using access token
-            error_log('Fetching user info with access token');
             $userInfo = $this->getUserInfo($accessToken);
             
             if (empty($userInfo->email)) {
@@ -112,7 +106,6 @@ class GoogleAuthService {
             }
             
             // Find or create user
-            error_log('Finding or creating user in database');
             $user = $this->findOrCreateUser($userInfo);
             
             if (empty($user['id'])) {
@@ -121,22 +114,22 @@ class GoogleAuthService {
                 throw new \Exception($error);
             }
             
-            // Generate JWT token
-            error_log('Generating JWT token for user ID: ' . $user['id']);
+            // Generate JWT token using the same format as regular login
+            $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+            $jwt_secret = $config['jwt_secret'] ?? 'changeme';
             
-            if (!class_exists(JwtService::class)) {
-                error_log('JwtHelper class not found');
-                throw new \Exception('JWT Helper class not found');
-            }
-            
-            $jwtToken = JwtService::generateToken(
-                $user['id'],
-                $user['email'],
-                [
-                    'name' => $user['name'],
-                    'image' => $user['image'] ?? null
-                ]
-            );
+            $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
+            $payload = json_encode([
+                'user_id' => (int)$user['id'],
+                'email' => $user['email'],
+                'name' => $user['name'],
+                'exp' => time() + (24 * 60 * 60) // 24 hours
+            ]);
+
+            $header_encoded = rtrim(strtr(base64_encode($header), '+/', '-_'), '=');
+            $payload_encoded = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+            $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header_encoded.$payload_encoded", $jwt_secret, true)), '+/', '-_'), '=');
+            $jwtToken = "$header_encoded.$payload_encoded.$signature";
             
             if (empty($jwtToken)) {
                 $error = 'Failed to generate JWT token';
@@ -155,7 +148,6 @@ class GoogleAuthService {
                 ]
             ];
             
-            error_log('Authentication successful for user: ' . $user['email']);
             return $response;
             
         } catch (\Exception $e) {
@@ -168,22 +160,18 @@ class GoogleAuthService {
     
     public function exchangeCodeForTokens($code) {
         try {
-            error_log('Exchanging code for tokens');
             $this->client->setRedirectUri($this->config['redirect_uri']);
             $token = $this->client->fetchAccessTokenWithAuthCode($code);
             if (isset($token['error'])) {
                 throw new \Exception('Error fetching access token: ' . $token['error_description']);
             }
             if (empty($token['id_token']) || empty($token['access_token'])) {
-                throw new \Exception('Missing id_token or access_token in token response');
+                throw new \Exception('Invalid token response from Google');
             }
-            return [
-                'id_token' => $token['id_token'],
-                'access_token' => $token['access_token'],
-            ];
+            return $token;
         } catch (\Exception $e) {
             error_log('exchangeCodeForTokens error: ' . $e->getMessage());
-            return ['error' => $e->getMessage()];
+            throw new \Exception('Failed to exchange code for tokens: ' . $e->getMessage());
         }
     }
     

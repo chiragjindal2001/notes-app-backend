@@ -97,16 +97,6 @@ class AuthController
 
     public static function login()
     {
-        // Debug logging
-        $logData = [
-            'time' => date('c'),
-            'method' => $_SERVER['REQUEST_METHOD'],
-            'headers' => getallheaders(),
-            'body_raw' => file_get_contents('php://input'),
-            'post' => $_POST
-        ];
-        file_put_contents(dirname(__DIR__, 2) . '/src/user_auth_request.log', print_r($logData, true) . "\n---\n", FILE_APPEND);
-        
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
@@ -128,18 +118,6 @@ class AuthController
         $sql = 'SELECT id, email, password_hash, name, is_verified FROM users WHERE email = $1';
         $result = pg_query_params($conn, $sql, [$input['email']]);
         $user = pg_fetch_assoc($result);
-        
-        // Debug logging
-        $debugInfo = [
-            'email_searched' => $input['email'],
-            'user_found' => $user ? 'yes' : 'no',
-            'user_data' => $user ? ['id' => $user['id'], 'email' => $user['email'], 'name' => $user['name']] : null
-        ];
-        file_put_contents(dirname(__DIR__, 2) . '/src/user_auth_request.log', print_r([$user, $input], true) . "\n---\n", FILE_APPEND);
-        if ($user) {
-            $debugInfo['password_verify'] = password_verify($input['password'], $user['password_hash']) ? 'success' : 'failed';
-        }
-        file_put_contents(dirname(__DIR__, 2) . '/src/user_auth_request.log', "DEBUG: " . print_r($debugInfo, true) . "\n---\n", FILE_APPEND);
 
         if (!$user || !password_verify($input['password'], $user['password_hash'])) {
             http_response_code(401);

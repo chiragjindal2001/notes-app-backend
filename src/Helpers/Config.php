@@ -50,11 +50,14 @@ class Config {
      * @return array
      */
     public static function jwt() {
+        if (self::$config === null) {
+            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+        }
         return [
-            'secret' => self::get('JWT_SECRET', 'your_secure_jwt_secret'),
-            'issuer' => self::get('JWT_ISSUER', 'php-backend-starter'),
-            'audience' => self::get('JWT_AUDIENCE', 'php-backend-audience'),
-            'expiration' => (int)self::get('JWT_EXPIRATION', 2592000),
+            'secret' => self::$config['jwt_secret'] ?? 'your_secure_jwt_secret',
+            'issuer' => 'php-backend-starter',
+            'audience' => 'php-backend-audience',
+            'expiration' => 2592000, // 30 days
         ];
     }
     

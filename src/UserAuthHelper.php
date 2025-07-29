@@ -41,8 +41,11 @@ class UserAuthHelper
                 self::unauthorized('Invalid token signature');
             }
 
+            // Add padding to base64 if needed
+            $payload = str_pad($payload, strlen($payload) % 4, '=', STR_PAD_RIGHT);
             $payload_data = json_decode(base64_decode($payload), true);
             if (!$payload_data) {
+                error_log('Failed to decode JWT payload: ' . $payload);
                 self::unauthorized('Invalid token payload');
             }
             
@@ -78,29 +81,45 @@ class UserAuthHelper
     public static function validateJWT($token)
     {
         try {
-            // Ensure we have the JwtHelper class
-            if (!class_exists(\Helpers\JwtService::class)) {
-                throw new Exception('JwtService class not found');
+            $config = require dirname(__DIR__) . '/config/config.development.php';
+            $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+
+            // Validate JWT token manually (same format as login)
+            $parts = explode('.', $token);
+            if (count($parts) !== 3) {
+                throw new Exception('Invalid token format');
             }
+
+            $header = $parts[0];
+            $payload = $parts[1];
+            $signature = $parts[2];
+
+            $expected_sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload", $jwt_secret, true)), '+/', '-_'), '=');
             
-            // Use the fully qualified namespace with error handling
-            $decoded = \Helpers\JwtService::validateToken($token);
-            
-            if (!$decoded || (!isset($decoded['user_id']) && !isset($decoded['sub']))) {
+            if (!hash_equals($expected_sig, $signature)) {
+                throw new Exception('Invalid token signature');
+            }
+
+            // Add padding to base64 if needed
+            $payload = str_pad($payload, strlen($payload) % 4, '=', STR_PAD_RIGHT);
+            $payload_data = json_decode(base64_decode($payload), true);
+            if (!$payload_data) {
+                error_log('Failed to decode JWT payload in validateJWT: ' . $payload);
                 throw new Exception('Invalid token payload');
             }
             
-            return $decoded;
+            if (isset($payload_data['exp']) && $payload_data['exp'] < time()) {
+                throw new Exception('Token expired');
+            }
+
+            if (!isset($payload_data['user_id'])) {
+                throw new Exception('Invalid token payload: missing user_id');
+            }
             
-        } catch (\Firebase\JWT\ExpiredException $e) {
-            error_log('JWT Token expired: ' . $e->getMessage());
-            return false;
-        } catch (\Firebase\JWT\SignatureInvalidException $e) {
-            error_log('JWT Signature verification failed: ' . $e->getMessage());
-            return false;
+            return $payload_data;
+            
         } catch (\Exception $e) {
             error_log('JWT validation failed: ' . $e->getMessage());
-            error_log('Stack trace: ' . $e->getTraceAsString());
             return false;
         }
     }

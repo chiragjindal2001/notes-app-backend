@@ -13,7 +13,6 @@ class AuthController extends BaseController {
 
     public function googleCallback() {
         try {
-            error_log('Google callback endpoint hit');
             if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 if (!isset($_GET['code'])) {
                     // Redirect to Google consent screen

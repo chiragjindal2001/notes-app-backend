@@ -29,8 +29,8 @@ class CartController
         if ($token) {
             try {
                 $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && (isset($user['sub']) || isset($user['user_id']))) {
-                    $user_id = $user['sub'] ?? $user['user_id'];
+                if ($user && isset($user['user_id'])) {
+                    $user_id = $user['user_id'];
                 }
             } catch (\Exception $e) {
                 error_log('JWT validation error: ' . $e->getMessage());
@@ -99,17 +99,19 @@ class CartController
         require_once dirname(__DIR__, 2) . '/Controllers/BaseController.php';
         $baseController = new \BaseController();
         $token = $baseController->getBearerToken();
+        
         $user_id = null;
         if ($token) {
             try {
                 $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && (isset($user['sub']) || isset($user['user_id']))) {
-                    $user_id = $user['sub'] ?? $user['user_id'];
+                if ($user && isset($user['user_id'])) {
+                    $user_id = $user['user_id'];
                 }
             } catch (\Exception $e) {
                 error_log('JWT validation error: ' . $e->getMessage());
             }
         }
+        
         if (!$user_id) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
@@ -158,8 +160,8 @@ class CartController
             $token = $matches[1];
             try {
                 $user = \Helpers\UserAuthHelper::validateJWT($token);
-                if ($user && isset($user['sub'])) {  // 'sub' contains the user ID in JWT
-                    $user_id = $user['sub'];
+                if ($user && isset($user['user_id'])) {  // 'user_id' contains the user ID in JWT
+                    $user_id = $user['user_id'];
                 }
             } catch (\Exception $e) {
                 error_log('JWT validation error in updateCartItem: ' . $e->getMessage());
@@ -218,7 +220,6 @@ class CartController
 
     public static function deleteCartItem($id)
     {
-        error_log('DELETE /api/cart/:id headers: ' . json_encode(getallheaders()));
         if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') {
             http_response_code(405);
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);

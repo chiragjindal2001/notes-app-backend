@@ -114,7 +114,8 @@ class CheckoutController
                 'key' => $razorpay['key_id'],
                 'customer' => [
                     'name' => $customer_name,
-                    'email' => $customer_details['email']
+                    'email' => $customer_details['email'],
+                    'phone' => $customer_details['phone'] ?? null
                 ]
             ]
         ];

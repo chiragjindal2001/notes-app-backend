@@ -22,8 +22,6 @@ class JwtService {
         }
 
         try {
-            error_log('Initializing JwtHelper');
-            
             $jwtConfig = Config::jwt();
             
             if (empty($jwtConfig['secret'])) {
@@ -36,7 +34,6 @@ class JwtService {
             self::$expiration = $jwtConfig['expiration'];
             
             self::$initialized = true;
-            error_log('JwtHelper initialized successfully');
             
         } catch (Exception $e) {
             $error = 'Failed to initialize JwtHelper: ' . $e->getMessage();
@@ -47,8 +44,6 @@ class JwtService {
 
     public static function generateToken($userId, $email, $additionalData = []) {
         try {
-            error_log('Generating JWT token for user: ' . $email);
-            
             if (empty(self::$secretKey)) {
                 throw new \Exception('JWT secret key is not set');
             }
@@ -76,7 +71,6 @@ class JwtService {
                 throw new \Exception('Failed to generate token');
             }
             
-            error_log('Successfully generated JWT token');
             return $token;
             
         } catch (\Exception $e) {

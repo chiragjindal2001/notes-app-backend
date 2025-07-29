@@ -146,6 +146,12 @@ if ($uri === '/' || $uri === '/hello') {
 } elseif ($uri === '/api/my-notes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once dirname(__DIR__) . '/Controllers/User/NotesController.php';
     NotesController::getMyNotes();
+} elseif ($uri === '/api/orders' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once dirname(__DIR__) . '/Controllers/User/OrdersController.php';
+    OrdersController::getUserOrders();
+} elseif (preg_match('#^/api/orders/([\w\-]+)$#', $uri, $matches) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    require_once dirname(__DIR__) . '/Controllers/User/OrdersController.php';
+    OrdersController::getOrderById($matches[1]);
 } else {
 http_response_code(404);
 echo '404 Not Found';
