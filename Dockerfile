@@ -37,6 +37,11 @@ RUN docker-php-ext-install -j$(nproc) \
 # Enable Apache rewrite module
 RUN a2enmod rewrite
 
+# Configure Apache to use public directory as document root
+RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' /etc/apache2/sites-available/000-default.conf
+RUN sed -i 's|<Directory /var/www/>|<Directory /var/www/html/public>|' /etc/apache2/sites-available/000-default.conf
+RUN sed -i 's|</Directory>|</Directory>|' /etc/apache2/sites-available/000-default.conf
+
 # Set working directory
 WORKDIR /var/www/html
 
