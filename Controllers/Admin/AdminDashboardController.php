@@ -1,5 +1,7 @@
 <?php
 require_once dirname(__DIR__) . '/src/AuthHelper.php';
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class AdminDashboardController
 {
     public static function stats()
@@ -10,8 +12,10 @@ class AdminDashboardController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         require_once dirname(__DIR__) . '/models/Dashboard.php';
         $dashboardModel = new Dashboard($conn);

@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class ReviewController
 {
     public static function addReview()
@@ -9,9 +11,11 @@ class ReviewController
             echo json_encode(['success' => false, 'message' => 'Missing required fields']);
             return;
         }
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Review.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        require_once dirname(__DIR__, 2) . '/models/Review.php';
         $pdo = Db::getConnection($config);
         $reviewModel = new Review($pdo);
         $review = $reviewModel->add($input);
@@ -26,9 +30,11 @@ class ReviewController
 
     public static function getReviewsForNote($note_id)
     {
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Review.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        require_once dirname(__DIR__, 2) . '/models/Review.php';
         $pdo = Db::getConnection($config);
         $reviewModel = new Review($pdo);
         $reviews = $reviewModel->listForNote($note_id);
@@ -45,9 +51,11 @@ class ReviewController
     {
         // Admin only
         AuthHelper::requireAdminAuth();
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Review.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        require_once dirname(__DIR__, 2) . '/models/Review.php';
         $pdo = Db::getConnection($config);
         $reviewModel = new Review($pdo);
         $reviews = $reviewModel->listAll();
@@ -64,9 +72,11 @@ class ReviewController
     {
         // Admin only
         AuthHelper::requireAdminAuth();
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Review.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        require_once dirname(__DIR__, 2) . '/models/Review.php';
         $pdo = Db::getConnection($config);
         $reviewModel = new Review($pdo);
         $deleted = $reviewModel->delete($id);

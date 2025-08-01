@@ -13,7 +13,10 @@ class EmailService
     
     public function __construct()
     {
-        $this->config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $this->config = [
+            'base_url' => \Helpers\Config::get('BASE_URL', 'http://localhost:3000'),
+            'email' => \Helpers\Config::email(),
+        ];
     }
     
     /**

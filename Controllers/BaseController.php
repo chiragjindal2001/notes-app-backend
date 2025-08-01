@@ -1,11 +1,21 @@
 <?php
 
+require_once __DIR__ . '/../src/Helpers/Config.php';
+
 class BaseController {
     protected $config;
 
     public function __construct() {
-        // Load configuration
-        $this->config = require __DIR__ . '/../config/config.development.php';
+        // Load configuration using environment variables
+        $this->config = [
+            'APP_DEBUG' => \Helpers\Config::get('APP_DEBUG', true),
+            'jwt_secret' => \Helpers\Config::get('JWT_SECRET', 'your_secure_jwt_secret'),
+            'base_url' => \Helpers\Config::get('BASE_URL', 'http://localhost:3000'),
+            'db' => \Helpers\Config::database(),
+            'google' => \Helpers\Config::google(),
+            'razorpay' => \Helpers\Config::razorpay(),
+            'email' => \Helpers\Config::email(),
+        ];
     }
 
     /**

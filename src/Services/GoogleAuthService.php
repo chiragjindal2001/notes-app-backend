@@ -115,8 +115,7 @@ class GoogleAuthService {
             }
             
             // Generate JWT token using the same format as regular login
-            $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-            $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+            $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
             
             $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
             $payload = json_encode([

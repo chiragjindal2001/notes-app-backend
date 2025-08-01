@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
 
 // BaseController is now included in routes.php
 class AuthController extends BaseController {
@@ -7,7 +8,9 @@ class AuthController extends BaseController {
     public function __construct() {
         parent::__construct();
         // Load config and pass to GoogleAuthService
-        $config = require __DIR__ . '/../../config/config.development.php';
+        $config = [
+            'google' => \Helpers\Config::google(),
+        ];
         $this->googleAuthService = new GoogleAuthService($config);
     }
 

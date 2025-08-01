@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
 
 class OrdersController
 {
@@ -33,7 +34,9 @@ class OrdersController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Order.php';
         
@@ -123,7 +126,9 @@ class OrdersController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Order.php';
         

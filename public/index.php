@@ -1,8 +1,7 @@
 <?php
-// Remove Dotenv usage and .env loading
+// Load environment variables
 define('PROJECT_ROOT', dirname(__DIR__));
 require_once PROJECT_ROOT . '/vendor/autoload.php';
-require_once PROJECT_ROOT . '/config/config.development.php';
 require_once PROJECT_ROOT . '/src/Helpers/Config.php';
 require_once PROJECT_ROOT . '/src/UserAuthHelper.php';
 require_once PROJECT_ROOT . '/src/Helpers/JwtService.php';

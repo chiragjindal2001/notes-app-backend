@@ -81,8 +81,7 @@ class UserAuthHelper
     public static function validateJWT($token)
     {
         try {
-            $config = require dirname(__DIR__) . '/config/config.development.php';
-            $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+            $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
 
             // Validate JWT token manually (same format as login)
             $parts = explode('.', $token);
@@ -126,8 +125,7 @@ class UserAuthHelper
 
     public static function generateToken($user_data, $expiry_hours = 24)
     {
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
         
         $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
         $payload = json_encode([

@@ -1,10 +1,14 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class NotesController
 {
     public static function getNotes()
     {
         try{
-            $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+            $config = [
+                'db' => \Helpers\Config::database(),
+            ];
             require_once dirname(__DIR__, 2) . '/src/Db.php';
             require_once dirname(__DIR__, 2) . '/models/Note.php';
             $pdo = Db::getConnection($config);
@@ -53,7 +57,9 @@ class NotesController
 
     public static function getNoteById($id)
     {
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Note.php';
         $pdo = Db::getConnection($config);
@@ -76,7 +82,9 @@ class NotesController
 
     public static function getSubjects()
     {
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Note.php';
         $pdo = Db::getConnection($config);
@@ -121,8 +129,7 @@ class NotesController
             return;
         }
         $token = $matches[1];
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
         $payload = null;
         try {
             $parts = explode('.', $token);
@@ -139,6 +146,9 @@ class NotesController
             echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             return;
         }
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Note.php';
         $conn = Db::getConnection($config);
@@ -164,7 +174,7 @@ class NotesController
             $notes[] = $note;
         }
         // Build download URLs (placeholder, you may want to generate secure links)
-        $base_url = $config['base_url'] ?? 'http://localhost:8080';
+        $base_url = \Helpers\Config::get('BASE_URL', 'http://localhost:8080');
         foreach ($notes as &$note) {
             $note['download_url'] = $base_url . "/api/downloads/" . $note['id'];
         }

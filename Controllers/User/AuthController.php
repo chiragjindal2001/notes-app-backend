@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class AuthController
 {
     public static function register()
@@ -30,7 +32,10 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+            'APP_DEBUG' => \Helpers\Config::get('APP_DEBUG', true),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -110,7 +115,10 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+            'APP_DEBUG' => \Helpers\Config::get('APP_DEBUG', true),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -188,8 +196,7 @@ class AuthController
         }
 
         $token = $matches[1];
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
 
         // Validate JWT token
         $parts = explode('.', $token);
@@ -263,7 +270,9 @@ class AuthController
             return;
         }
         $refresh_token = $input['refresh_token'];
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
         $conn = Db::getConnection($config);
@@ -330,7 +339,9 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -397,7 +408,9 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -505,7 +518,9 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -583,7 +598,9 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -642,7 +659,9 @@ class AuthController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 

@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class CartController
 {
     // Ensure UserAuthHelper is loaded once
@@ -53,7 +55,9 @@ class CartController
             }
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Cart.php';
         
@@ -118,7 +122,9 @@ class CartController
             return;
         }
         
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Cart.php';
         
@@ -182,7 +188,9 @@ class CartController
         }
         
         // Get database connection
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Cart.php';
         
@@ -250,7 +258,9 @@ class CartController
 
 
         // Get database connection
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Cart.php';
         
@@ -320,7 +330,9 @@ class CartController
              return;
          }
         
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Cart.php';
         

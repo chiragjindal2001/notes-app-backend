@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class ContactController
 {
     public static function submitContact()
@@ -32,7 +34,9 @@ class ContactController
                     $user_id = $user['user_id'];
                     
                     // Get user details from database
-                    $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+                    $config = [
+                        'db' => \Helpers\Config::database(),
+                    ];
                     require_once dirname(__DIR__, 2) . '/src/Db.php';
                     require_once dirname(__DIR__, 2) . '/models/User.php';
                     
@@ -66,7 +70,9 @@ class ContactController
             return;
         }
 
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Contact.php';
         

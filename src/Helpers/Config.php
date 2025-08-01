@@ -2,27 +2,52 @@
 
 namespace Helpers;
 
-// Helper for loading config values from config.development.php
+// Helper for loading config values from environment variables
 class Config {
-    private static $config = null;
+    private static $envLoaded = false;
+
+    private static function loadEnv() {
+        if (!self::$envLoaded) {
+            $envFile = dirname(__DIR__) . '/../.env';
+            if (file_exists($envFile)) {
+                $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                foreach ($lines as $line) {
+                    if (strpos($line, '=') !== false && strpos($line, '#') !== 0) {
+                        list($key, $value) = explode('=', $line, 2);
+                        $key = trim($key);
+                        $value = trim($value);
+                        
+                        // Remove quotes if present
+                        if ((substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
+                            (substr($value, 0, 1) === "'" && substr($value, -1) === "'")) {
+                            $value = substr($value, 1, -1);
+                        }
+                        
+                        if (!array_key_exists($key, $_ENV)) {
+                            $_ENV[$key] = $value;
+                        }
+                        if (!array_key_exists($key, $_SERVER)) {
+                            $_SERVER[$key] = $value;
+                        }
+                    }
+                }
+            }
+            self::$envLoaded = true;
+        }
+    }
 
     public static function get($key, $default = null) {
-        if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
-        }
-        return self::$config[$key] ?? $default;
+        self::loadEnv();
+        return $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key) ?: $default;
     }
 
     // Optionally, add a method to get nested config values
     public static function getNested($keys, $default = null) {
-        if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
-        }
-        $value = self::$config;
+        self::loadEnv();
+        $value = null;
         foreach ($keys as $key) {
-            if (isset($value[$key])) {
-                $value = $value[$key];
-            } else {
+            $value = self::get($key, $default);
+            if ($value === $default) {
                 return $default;
             }
         }
@@ -50,11 +75,8 @@ class Config {
      * @return array
      */
     public static function jwt() {
-        if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
-        }
         return [
-            'secret' => self::$config['jwt_secret'] ?? 'your_secure_jwt_secret',
+            'secret' => self::get('JWT_SECRET', 'your_secure_jwt_secret'),
             'issuer' => 'php-backend-starter',
             'audience' => 'php-backend-audience',
             'expiration' => 2592000, // 30 days
@@ -67,10 +89,11 @@ class Config {
      * @return array
      */
     public static function google() {
-        if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
-        }
-        return self::$config['google'];
+        return [
+            'client_id' => self::get('GOOGLE_CLIENT_ID'),
+            'client_secret' => self::get('GOOGLE_CLIENT_SECRET'),
+            'redirect_uri' => self::get('GOOGLE_REDIRECT_URI'),
+        ];
     }
     
     /**
@@ -82,6 +105,24 @@ class Config {
         return [
             'key_id' => self::get('RAZORPAY_KEY_ID'),
             'key_secret' => self::get('RAZORPAY_KEY_SECRET'),
+            'webhook_secret' => self::get('RAZORPAY_WEBHOOK_SECRET'),
+        ];
+    }
+    
+    /**
+     * Get Email configuration
+     * 
+     * @return array
+     */
+    public static function email() {
+        return [
+            'from' => self::get('EMAIL_FROM'),
+            'from_name' => self::get('EMAIL_FROM_NAME'),
+            'smtp_host' => self::get('EMAIL_SMTP_HOST'),
+            'smtp_port' => (int)self::get('EMAIL_SMTP_PORT', 587),
+            'smtp_username' => self::get('EMAIL_SMTP_USERNAME'),
+            'smtp_password' => self::get('EMAIL_SMTP_PASSWORD'),
+            'smtp_encryption' => self::get('EMAIL_SMTP_ENCRYPTION', 'tls'),
         ];
     }
 }

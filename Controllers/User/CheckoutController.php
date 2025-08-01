@@ -72,8 +72,7 @@ class CheckoutController
         $amount_in_paise = (int) round($order['total_amount'] * 100);
 
         // Create Razorpay order
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $razorpay = $config['razorpay'];
+        $razorpay = \Helpers\Config::razorpay();
         $data = [
             'amount' => $amount_in_paise,
             'currency' => 'INR',
@@ -140,8 +139,8 @@ class CheckoutController
         }
 
         // Get Razorpay config
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        $razorpay_key_secret = $config['razorpay']['key_secret'];
+        $razorpay = \Helpers\Config::razorpay();
+        $razorpay_key_secret = $razorpay['key_secret'];
 
         // Verify the payment signature
         $generated_signature = hash_hmac('sha256', $input['razorpay_order_id'] . '|' . $input['razorpay_payment_id'], $razorpay_key_secret);
@@ -150,7 +149,7 @@ class CheckoutController
             // Fetch payment details from Razorpay
             $payment_id = $input['razorpay_payment_id'];
             $razorpay_order_id = $input['razorpay_order_id'];
-            $razorpay_key_id = $config['razorpay']['key_id'];
+            $razorpay_key_id = $razorpay['key_id'];
             $ch = curl_init("https://api.razorpay.com/v1/payments/$payment_id");
             curl_setopt($ch, CURLOPT_USERPWD, $razorpay_key_id . ':' . $razorpay_key_secret);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -264,8 +263,8 @@ class CheckoutController
                 return;
             }
         }
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        $key_secret = $config['razorpay']['key_secret'];
+        $razorpay = \Helpers\Config::razorpay();
+        $key_secret = $razorpay['key_secret'];
         $generated_signature = hash_hmac('sha256', $input['razorpay_order_id'] . '|' . $input['razorpay_payment_id'], $key_secret);
         $valid = ($generated_signature === $input['razorpay_signature']);
         $response = [

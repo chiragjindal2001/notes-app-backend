@@ -1,5 +1,7 @@
 <?php
 require_once dirname(__DIR__, 2) . '/src/AuthHelper.php';
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class AdminNotesController
 {
     public static function createNote()
@@ -91,7 +93,9 @@ class AdminNotesController
                 }
             }
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id, title, subject, price, status, created_at, preview_image';
@@ -126,7 +130,9 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         $result = pg_query($conn, 'SELECT id, title, subject, price, downloads, status, created_at, preview_image, file_url, description, tags, features, topics FROM notes ORDER BY created_at DESC');
@@ -205,7 +211,9 @@ class AdminNotesController
         file_put_contents(dirname(__DIR__, 2) . '/src/admin_notes_update_request.log', print_r(['POST' => $_POST, 'FILES' => $_FILES], true) . "\n---\n", FILE_APPEND);
 
         // Ensure database connection is defined before use
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
@@ -291,7 +299,9 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         // Soft delete: set is_active = false
@@ -325,7 +335,9 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Missing status']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         $result = pg_query_params($conn, 'UPDATE notes SET status = $1 WHERE id = $2 RETURNING id, title, status', [$input['status'], $id]);

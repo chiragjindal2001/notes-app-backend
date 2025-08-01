@@ -1,6 +1,6 @@
 <?php
 // Include required files
-require_once __DIR__ . '/../config/config.development.php';
+require_once __DIR__ . '/../src/Helpers/Config.php';
 require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../src/Services/GoogleAuthService.php';
 
@@ -13,10 +13,11 @@ require_once PROJECT_ROOT . '/src/Helpers/JwtService.php';
 header('Content-Type: application/json');
 
 // Initialize Google Client
+$googleConfig = \Helpers\Config::google();
 $client = new Google_Client([
-    'client_id' => $config['google']['client_id'],
-    'client_secret' => $config['google']['client_secret'],
-    'redirect_uri' => $config['google']['redirect_uri']
+    'client_id' => $googleConfig['client_id'],
+    'client_secret' => $googleConfig['client_secret'],
+    'redirect_uri' => $googleConfig['redirect_uri']
 ]);
 
 // If we have a code from the OAuth 2.0 flow

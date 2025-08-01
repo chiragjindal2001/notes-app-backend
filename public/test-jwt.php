@@ -2,8 +2,8 @@
 // Include Composer's autoloader
 require_once __DIR__ . '/../vendor/autoload.php';
 
-// Include config
-require_once __DIR__ . '/../config/config.development.php';
+// Include config helper
+require_once __DIR__ . '/../src/Helpers/Config.php';
 
 if (!defined('PROJECT_ROOT')) {
     define('PROJECT_ROOT', dirname(__DIR__));

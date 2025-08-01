@@ -1,5 +1,7 @@
 <?php
 require_once dirname(__DIR__, 2) . '/src/AuthHelper.php';
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class AdminAuthController
 {
     public static function login()
@@ -15,7 +17,9 @@ class AdminAuthController
             echo json_encode(['success' => false, 'message' => 'Missing username or password']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         require_once dirname(__DIR__, 2) . '/models/Admin.php';
@@ -35,7 +39,7 @@ class AdminAuthController
             'iat' => time(),
             'exp' => time() + 86400
         ];
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $jwt_secret = \Helpers\Config::get('JWT_SECRET', 'changeme');
         $header = rtrim(strtr(base64_encode(json_encode(['alg'=>'HS256','typ'=>'JWT'])), '+/', '-_'), '=');
         $payload_enc = rtrim(strtr(base64_encode(json_encode($payload)), '+/', '-_'), '=');
         $sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload_enc", $jwt_secret, true)), '+/', '-_'), '=');

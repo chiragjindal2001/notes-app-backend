@@ -1,11 +1,15 @@
 <?php
 require_once dirname(__DIR__, 2) . '/src/AuthHelper.php';
+require_once dirname(__DIR__, 2) . '/src/Helpers/Config.php';
+
 class AdminOrdersController
 {
     public static function listOrders()
     {
         AuthHelper::requireAdminAuth();
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         
@@ -116,7 +120,9 @@ class AdminOrdersController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $pdo = Db::getConnection($config);
         $orderModel = new Order($pdo);
@@ -149,7 +155,9 @@ class AdminOrdersController
             echo json_encode(['success' => false, 'message' => 'Missing status']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $pdo = Db::getConnection($config);
         $orderModel = new Order($pdo);
@@ -182,14 +190,16 @@ class AdminOrdersController
             echo json_encode(['success' => false, 'message' => 'Missing order_id or amount']);
             return;
         }
-        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        $config = [
+            'db' => \Helpers\Config::database(),
+        ];
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $pdo = Db::getConnection($config);
         $orderModel = new Order($pdo);
         $refund = $orderModel->refund($input['order_id'], $input['amount'], $input['reason'] ?? null);
         $orderModel->updateStatus($input['order_id'], 'refunded');
         // For demo, refund by Razorpay order_id (in real use, use payment_id)
-        $razorpay = $config['razorpay'];
+        $razorpay = \Helpers\Config::razorpay();
         $refund_data = [
             'amount' => (int)round($input['amount'] * 100),
             'speed' => 'normal',
