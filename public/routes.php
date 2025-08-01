@@ -8,7 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 // All routing logic moved here from index.php
 $uri = strtok($_SERVER['REQUEST_URI'], '?');
-
+echo $uri;
 if ($uri === '/' || $uri === '/hello') {
     echo 'E-Notes Backend API';
 } elseif ($uri === '/api/notes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
