@@ -48,8 +48,6 @@ WORKDIR /var/www/html
 # Copy existing application directory contents
 COPY . /var/www/html
 
-# Copy environment file if it exists
-COPY env.example /var/www/html/.env
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
