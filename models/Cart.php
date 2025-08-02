@@ -14,20 +14,27 @@ class Cart
             throw new Exception('User ID is required');
         }
         // Check for existing item
-        $checkSql = 'SELECT * FROM cart_items WHERE user_id = $1 AND note_id = $2';
-        $checkResult = pg_query_params($this->conn, $checkSql, [$data['user_id'], $data['note_id']]);
-        $existing = pg_fetch_assoc($checkResult);
+        $checkSql = 'SELECT * FROM cart_items WHERE user_id = ? AND note_id = ?';
+        $checkStmt = mysqli_prepare($this->conn, $checkSql);
+        mysqli_stmt_bind_param($checkStmt, 'ii', $data['user_id'], $data['note_id']);
+        mysqli_stmt_execute($checkStmt);
+        $checkResult = mysqli_stmt_get_result($checkStmt);
+        $existing = mysqli_fetch_assoc($checkResult);
+        mysqli_stmt_close($checkStmt);
+        
         if ($existing) {
             // Already in cart, return existing item
             return $existing;
         }
-        $sql = 'INSERT INTO cart_items (user_id, note_id) VALUES ($1, $2) RETURNING *';
-        $params = [
-            $data['user_id'],
-            $data['note_id']
-        ];
-        $result = pg_query_params($this->conn, $sql, $params);
-        return pg_fetch_assoc($result);
+        
+        $sql = 'INSERT INTO cart_items (user_id, note_id) VALUES (?, ?)';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'ii', $data['user_id'], $data['note_id']);
+        mysqli_stmt_execute($stmt);
+        $insertId = mysqli_insert_id($this->conn);
+        mysqli_stmt_close($stmt);
+        
+        return $this->getItemById($insertId);
     }
 
     public function getItems($user_id)
@@ -36,41 +43,54 @@ class Cart
             throw new Exception('User ID is required');
         }
         
-        $sql = 'SELECT ci.*, n.title, n.price, n.preview_image FROM cart_items ci JOIN notes n ON ci.note_id = n.id WHERE ci.user_id = $1';
-        $result = pg_query_params($this->conn, $sql, [$user_id]);
+        $sql = 'SELECT ci.*, n.title, n.price, n.description FROM cart_items ci JOIN notes n ON ci.note_id = n.id WHERE ci.user_id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $user_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         $items = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             $items[] = $row;
         }
+        mysqli_stmt_close($stmt);
         return $items;
     }
 
     public function updateItem($item_id)
     {
         // No quantity to update, just return the item
-        $sql = 'SELECT * FROM cart_items WHERE id = $1';
-        $result = pg_query_params($this->conn, $sql, [$item_id]);
-        return pg_fetch_assoc($result);
+        return $this->getItemById($item_id);
     }
 
     public function getItemById($item_id)
     {
-        $sql = 'SELECT * FROM cart_items WHERE id = $1';
-        $result = pg_query_params($this->conn, $sql, [$item_id]);
-        if (!$result) {
-            throw new Exception('Database error: ' . pg_last_error($this->conn));
+        $sql = 'SELECT * FROM cart_items WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $item_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        
+        if (!$row) {
+            throw new Exception('Database error: ' . mysqli_error($this->conn));
         }
-        return pg_fetch_assoc($result);
+        return $row;
     }
     
     public function deleteItem($item_id)
     {
-        $sql = 'DELETE FROM cart_items WHERE id = $1';
-        $result = pg_query_params($this->conn, $sql, [$item_id]);
-        if (!$result) {
-            throw new Exception('Database error: ' . pg_last_error($this->conn));
+        $sql = 'DELETE FROM cart_items WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $item_id);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affectedRows === -1) {
+            throw new Exception('Database error: ' . mysqli_error($this->conn));
         }
-        return pg_affected_rows($result) > 0;
+        return $affectedRows > 0;
     }
     
     public function clear($user_id)
@@ -79,36 +99,16 @@ class Cart
             throw new Exception('User ID is required');
         }
         
-        $sql = 'DELETE FROM cart_items WHERE user_id = $1';
-        $result = pg_query_params($this->conn, $sql, [$user_id]);
-        if (!$result) {
-            throw new Exception('Database error: ' . pg_last_error($this->conn));
+        $sql = 'DELETE FROM cart_items WHERE user_id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $user_id);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affectedRows === -1) {
+            throw new Exception('Database error: ' . mysqli_error($this->conn));
         }
-        return pg_affected_rows($result);
-    }
-    
-    /**
-     * Migrate cart items from session to user ID
-     * 
-     * @param string $session_id The session ID to migrate from
-     * @param int $user_id The user ID to migrate to
-     * @return bool True if migration was successful
-     */
-    private function migrateSessionToUser($session_id, $user_id)
-    {
-        // First, check if there are any items for this session
-        $checkSql = 'SELECT COUNT(*) as count FROM cart_items WHERE session_id = $1';
-        $checkResult = pg_query_params($this->conn, $checkSql, [$session_id]);
-        $count = pg_fetch_assoc($checkResult)['count'];
-        
-        if ($count == 0) {
-            return false; // No items to migrate
-        }
-        
-        // Update all items with this session_id to have the user_id
-        $updateSql = 'UPDATE cart_items SET user_id = $1, session_id = NULL WHERE session_id = $2';
-        $result = pg_query_params($this->conn, $updateSql, [$user_id, $session_id]);
-        
-        return $result !== false;
+        return $affectedRows;
     }
 }

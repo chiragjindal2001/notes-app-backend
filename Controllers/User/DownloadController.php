@@ -34,29 +34,37 @@ class DownloadController
         }
 
         // Check order/note access if needed (reuse logic from getDownloadLink if required)
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Note.php';
-        $conn = Database::getConnection();
+        
+        $conn = Db::getConnection($config);
         $noteModel = new Note($conn);
         $note = $noteModel->getById($note_id);
-        if (!$note || empty($note['file_url'])) {
+        
+        if (!$note || empty($note['file_path'])) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'PDF not found for this note']);
             return;
         }
-        $pdf_path = $note['file_url'];
-        // file_url is stored as /private_uploads/pdfs/filename.pdf
+        
+        $pdf_path = $note['file_path'];
+        // file_path is stored as /private_uploads/pdfs/filename.pdf
         $abs_path = dirname(__DIR__, 2) . $pdf_path;
+        
         if (!file_exists($abs_path)) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'File not found']);
             return;
         }
+        
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="' . basename($abs_path) . '"');
         header('Content-Length: ' . filesize($abs_path));
         readfile($abs_path);
         exit;
     }
+    
     // New: Secure download endpoint: /api/downloads/{note_id}
     public static function downloadNote($note_id)
     {
@@ -65,34 +73,51 @@ class DownloadController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
+        
         // Get JWT from Authorization header
         $headers = getallheaders();
         $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? null;
+        
         if (!$authHeader || !preg_match('/Bearer\s(.+)/', $authHeader, $matches)) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Missing or invalid Authorization header']);
             return;
         }
+        
         $token = $matches[1];
         $user = \Helpers\UserAuthHelper::validateJWT($token);
+        
         if (!$user || empty($user['user_id'])) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             return;
         }
+        
         $user_id = $user['user_id'];
+        
         // Check if user has purchased the note
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Download.php';
-        $pdo = Database::getConnection();
-        $downloadModel = new Download($pdo);
+        
+        $conn = Db::getConnection($config);
+        $downloadModel = new Download($conn);
         $row = $downloadModel->userHasPurchasedNote($user_id, $note_id);
+        
         if (!$row) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'You have not purchased this note or order not completed']);
             return;
         }
-        $download_url = dirname(__DIR__, 2) .  $row['file_url'] ?? null;
+        
+        $download_url = dirname(__DIR__, 2) . $row['file_path'] ?? null;
         $filename = $row['title'] ? strtolower(str_replace(' ', '-', $row['title'])) . '-notes.pdf' : 'note.pdf';
+        
+        if (!file_exists($download_url)) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'File not found']);
+            return;
+        }
         
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="' . $filename . '"');

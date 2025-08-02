@@ -94,22 +94,32 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id, title, subject, price, status, created_at, preview_image';
+        
         $params = [
             $data['title'],
             $data['description'],
             $data['subject'],
             $data['price'],
-            json_encode($data['tags']),
-            json_encode($data['features']),
-            json_encode($data['topics']),
             $file_paths['note_file'] ?? null,
-            $file_paths['preview_image'] ?? null,
-            isset($file_paths['sample_pages']) ? json_encode($file_paths['sample_pages']) : json_encode([]),
+            $file_paths['note_file'] ? filesize($file_paths['note_file']) : null,
+            $data['user_id'] ?? 1, // Default user ID
             'active'
         ];
-        $result = pg_query_params($conn, $sql, array_slice($params, 0, 11));
-        $note = pg_fetch_assoc($result);
+        
+        $sql = 'INSERT INTO notes (title, description, subject, price, file_path, file_size, user_id, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'sssdiiis', 
+            $params[0], $params[1], $params[2], $params[3], 
+            $params[4], $params[5], $params[6], $params[7]
+        );
+        mysqli_stmt_execute($stmt);
+        $note_id = mysqli_insert_id($conn);
+        mysqli_stmt_close($stmt);
+        
+        // Get the created note
+        $noteModel = new \Models\Note($conn);
+        $note = $noteModel->getById($note_id);
+        
         $response = [
             'success' => true,
             'message' => 'Note created successfully',
@@ -118,6 +128,7 @@ class AdminNotesController
         header('Content-Type: application/json');
         echo json_encode($response);
     }
+    
     public static function listNotes()
     {
         \Helpers\AuthHelper::requireAdminAuth();
@@ -129,17 +140,12 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $result = pg_query($conn, 'SELECT id, title, subject, price, downloads, status, created_at, preview_image, file_url, description, tags, features, topics FROM notes ORDER BY created_at DESC');
+        $result = mysqli_query($conn, 'SELECT id, title, subject, price, downloads, status, created_at, description FROM notes ORDER BY created_at DESC');
         $notes = [];
-        while ($row = pg_fetch_assoc($result)) {
-            // Parse JSON fields
-            $tags = json_decode($row['tags'] ?? '[]', true) ?: [];
-            $features = json_decode($row['features'] ?? '[]', true) ?: [];
-            $topics = json_decode($row['topics'] ?? '[]', true) ?: [];
-            
-            // Extract filename from file_url
-            $file_url = $row['file_url'] ?? '';
-            $filename = $file_url ? basename($file_url) : '';
+        while ($row = mysqli_fetch_assoc($result)) {
+            // Extract filename from file_path
+            $file_path = $row['file_path'] ?? '';
+            $filename = $file_path ? basename($file_path) : '';
             
             // Format the note data
             $note = [
@@ -147,7 +153,6 @@ class AdminNotesController
                 'title' => $row['title'],
                 'subject' => $row['subject'],
                 'price' => (float)$row['price'],
-                'tags' => $tags,
                 'description' => $row['description'],
                 'rating' => 0.0, // Placeholder - implement rating system if needed
                 'downloads' => (int)($row['downloads'] ?? 0),
@@ -157,9 +162,8 @@ class AdminNotesController
                 'filename' => $filename,
                 'file' => [
                     'name' => $filename,
-                    'url' => $file_url ? ($_SERVER['HTTP_HOST'] ?? 'localhost') . $file_url : null
+                    'url' => $file_path ? ($_SERVER['HTTP_HOST'] ?? 'localhost') . $file_path : null
                 ],
-                'preview' => $row['preview_image'] ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $row['preview_image']) : null,
                 'uploadDate' => date('Y-m-d', strtotime($row['created_at']))
             ];
             
@@ -191,89 +195,44 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Missing request body']);
             return;
         }
-        $fields = ['title','description','subject','price','tags','features','topics'];
-        $set = [];
-        $params = [':id' => $id];
-        foreach ($fields as $f) {
-            if (isset($input[$f])) {
-                $set[] = "$f = :$f";
-                $params[":$f"] = is_array($input[$f]) ? json_encode($input[$f]) : $input[$f];
-            }
-        }
-
-        // DEBUG: Log received POST and FILES for troubleshooting
-        file_put_contents(dirname(__DIR__, 2) . '/src/admin_notes_update_request.log', print_r(['POST' => $_POST, 'FILES' => $_FILES], true) . "\n---\n", FILE_APPEND);
-
-        // Ensure database connection is defined before use
+        
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-
-        // Build SQL with positional parameters for pg_query_params
-        $sql_parts = [];
-        $param_values = [];
-        $param_index = 1;
-
+        
+        // Build SQL with positional parameters for mysqli
+        $fields = ['title','description','subject','price','file_path','file_size'];
+        $set = [];
+        $params = [];
+        $paramTypes = '';
+        
         foreach ($fields as $f) {
             if (isset($input[$f])) {
-                $value = $input[$f];
-                if (in_array($f, ['tags', 'features', 'topics'])) {
-                    if (empty($value) || $value === '') {
-                        $value = [];
-                    }
-                    $value = json_encode($value);
-                }
-                $sql_parts[] = "$f = $" . $param_index;
-                $param_values[] = $value;
-                $param_index++;
+                $set[] = "$f = ?";
+                $params[] = $input[$f];
+                $paramTypes .= is_numeric($input[$f]) ? 'i' : 's';
             }
         }
-
-        // Handle file uploads (PDF and preview image)
-        $file_fields = [
-            'note_file' => 'file_url',
-            'preview_image' => 'preview_image'
-        ];
-        foreach ($file_fields as $formField => $dbField) {
-            if ($isMultipart && isset($_FILES[$formField]) && !empty($_FILES[$formField]['name'])) {
-                $name = $_FILES[$formField]['name'];
-                $tmp = $_FILES[$formField]['tmp_name'];
-                $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-                $target_dir = '';
-                $url_prefix = '';
-                if ($formField === 'note_file' && $ext === 'pdf') {
-                    $target_dir = dirname(__DIR__, 2) . '/private_uploads/pdfs/';
-                    $url_prefix = '/private_uploads/pdfs/';
-                } elseif ($formField === 'preview_image' && in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                    $target_dir = dirname(__DIR__, 2) . '/public/uploads/images/';
-                    $url_prefix = '/uploads/images/';
-                }
-                if ($target_dir && $url_prefix) {
-                    if (!is_dir($target_dir)) mkdir($target_dir,0777,true);
-                    $dest = $target_dir . uniqid() . '-' . basename($name);
-                    move_uploaded_file($tmp, $dest);
-                    $sql_parts[] = "$dbField = $" . $param_index;
-                    $param_values[] = $url_prefix . basename($dest);
-                    $param_index++;
-                }
-            }
-        }
-
-        if (!$sql_parts) {
+        
+        if (!$set) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'No fields to update']);
             return;
         }
-
-        $param_values[] = $id;
-        $sql = 'UPDATE notes SET ' . implode(', ', $sql_parts) . ' WHERE id = $' . $param_index . ' RETURNING id, title, subject, price, status, created_at, preview_image, file_url';
-        $result = pg_query_params($conn, $sql, $param_values);
-        $note = pg_fetch_assoc($result);
-        if (!$note) {
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Note not found']);
-            return;
-        }
+        
+        $params[] = $id;
+        $paramTypes .= 'i';
+        
+        $sql = 'UPDATE notes SET ' . implode(',', $set) . ' WHERE id = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        // Get the updated note
+        $noteModel = new \Models\Note($conn);
+        $note = $noteModel->getById($id);
+        
         $response = [
             'success' => true,
             'message' => 'Note updated successfully',
@@ -291,22 +250,31 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
+        
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        // Soft delete: set is_active = false
-        $result = pg_query_params($conn, 'UPDATE notes SET is_active = FALSE WHERE id = $1 RETURNING id, is_active', [$id]);
-        $updated = pg_fetch_assoc($result);
-        if (!$updated) {
+        
+        $sql = 'UPDATE notes SET is_active = FALSE WHERE id = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $affected_rows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affected_rows > 0) {
+            $response = [
+                'success' => true,
+                'message' => 'Note deleted successfully'
+            ];
+        } else {
             http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Note not found']);
-            return;
+            $response = [
+                'success' => false,
+                'message' => 'Note not found'
+            ];
         }
-        $response = [
-            'success' => true,
-            'message' => 'Note deactivated (soft deleted) successfully',
-            'data' => $updated
-        ];
+        
         header('Content-Type: application/json');
         echo json_encode($response);
     }
@@ -319,27 +287,43 @@ class AdminNotesController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
+        
         $input = json_decode(file_get_contents('php://input'), true);
         if (!$input || !isset($input['status'])) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Missing status']);
             return;
         }
+        
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $result = pg_query_params($conn, 'UPDATE notes SET status = $1 WHERE id = $2 RETURNING id, title, status', [$input['status'], $id]);
-        $note = pg_fetch_assoc($result);
-        if (!$note) {
+        
+        $sql = 'UPDATE notes SET status = ? WHERE id = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'si', $input['status'], $id);
+        mysqli_stmt_execute($stmt);
+        $affected_rows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affected_rows > 0) {
+            // Get the updated note
+            $noteModel = new \Models\Note($conn);
+            $note = $noteModel->getById($id);
+            
+            $response = [
+                'success' => true,
+                'message' => 'Note status updated successfully',
+                'data' => $note
+            ];
+        } else {
             http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Note not found']);
-            return;
+            $response = [
+                'success' => false,
+                'message' => 'Note not found'
+            ];
         }
-        $response = [
-            'success' => true,
-            'message' => 'Note status updated successfully',
-            'data' => $note
-        ];
+        
         header('Content-Type: application/json');
         echo json_encode($response);
     }

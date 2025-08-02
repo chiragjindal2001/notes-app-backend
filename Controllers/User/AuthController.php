@@ -1,4 +1,6 @@
 <?php
+require_once dirname(__DIR__, 2) . '/src/AuthHelper.php';
+
 class AuthController
 {
     public static function register()
@@ -12,21 +14,7 @@ class AuthController
         $input = json_decode(file_get_contents('php://input'), true);
         if (!is_array($input) || empty($input['email']) || empty($input['password']) || empty($input['name'])) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing required fields: email, password, name']);
-            return;
-        }
-
-        // Validate email format
-        if (!filter_var($input['email'], FILTER_VALIDATE_EMAIL)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid email format']);
-            return;
-        }
-
-        // Validate password length
-        if (strlen($input['password']) < 6) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Password must be at least 6 characters long']);
+            echo json_encode(['success' => false, 'message' => 'Missing required fields: email, password, and name']);
             return;
         }
 
@@ -35,13 +23,18 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Check if email already exists
-        $check_sql = 'SELECT id FROM users WHERE email = $1';
-        $check_result = pg_query_params($conn, $check_sql, [$input['email']]);
-        if (pg_num_rows($check_result) > 0) {
+        $check_sql = 'SELECT id FROM users WHERE email = ?';
+        $check_stmt = mysqli_prepare($conn, $check_sql);
+        mysqli_stmt_bind_param($check_stmt, 's', $input['email']);
+        mysqli_stmt_execute($check_stmt);
+        $check_result = mysqli_stmt_get_result($check_stmt);
+        if (mysqli_num_rows($check_result) > 0) {
             http_response_code(409);
             echo json_encode(['success' => false, 'message' => 'This email is already registered. Please try logging in or use a different email address.']);
+            mysqli_stmt_close($check_stmt);
             return;
         }
+        mysqli_stmt_close($check_stmt);
 
         // Hash password
         $password_hash = password_hash($input['password'], PASSWORD_DEFAULT);
@@ -51,16 +44,34 @@ class AuthController
         $verification_expires = date('Y-m-d H:i:s', time() + (10 * 60)); // 10 minutes from now
         
         // Insert new user with verification code
-        $insert_sql = 'INSERT INTO users (email, password_hash, name, verification_code, verification_code_expires_at, is_verified, created_at) VALUES ($1, $2, $3, $4, $5, FALSE, NOW()) RETURNING id, email, name, created_at';
-        $insert_result = pg_query_params($conn, $insert_sql, [$input['email'], $password_hash, $input['name'], $verification_code, $verification_expires]);
+        $insert_sql = 'INSERT INTO users (email, password_hash, name, email_verification_token, email_verification_expires_at, email_verified, created_at) VALUES (?, ?, ?, ?, ?, FALSE, NOW())';
+        $insert_stmt = mysqli_prepare($conn, $insert_sql);
+        mysqli_stmt_bind_param($insert_stmt, 'sssss', 
+            $input['email'], 
+            $password_hash, 
+            $input['name'], 
+            $verification_code, 
+            $verification_expires
+        );
         
-        if ($insert_result === false) {
+        if (!mysqli_stmt_execute($insert_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to create user: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to create user: ' . mysqli_error($conn)]);
+            mysqli_stmt_close($insert_stmt);
             return;
         }
 
-        $user = pg_fetch_assoc($insert_result);
+        $user_id = mysqli_insert_id($conn);
+        mysqli_stmt_close($insert_stmt);
+        
+        // Get the created user
+        $user_sql = 'SELECT id, email, name, created_at FROM users WHERE id = ?';
+        $user_stmt = mysqli_prepare($conn, $user_sql);
+        mysqli_stmt_bind_param($user_stmt, 'i', $user_id);
+        mysqli_stmt_execute($user_stmt);
+        $user_result = mysqli_stmt_get_result($user_stmt);
+        $user = mysqli_fetch_assoc($user_result);
+        mysqli_stmt_close($user_stmt);
         
         // Send verification email
         try {
@@ -115,9 +126,13 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email
-        $sql = 'SELECT id, email, password_hash, name, is_verified FROM users WHERE email = $1';
-        $result = pg_query_params($conn, $sql, [$input['email']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, password_hash, name, email_verified FROM users WHERE email = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['email']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$user || !password_verify($input['password'], $user['password_hash'])) {
             http_response_code(401);
@@ -126,42 +141,47 @@ class AuthController
         }
 
         // Check if email is verified
-        if ($user['is_verified'] !== 't') {
+        if (!$user['email_verified']) {
             http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Please verify your email address before logging in. Check your inbox for a verification email or use the resend option.']);
+            echo json_encode(['success' => false, 'message' => 'Please verify your email before logging in']);
             return;
         }
 
         // Generate JWT token
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
-        $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
-        $payload = json_encode([
-            'user_id' => (int)$user['id'],
+        $payload = [
+            'user_id' => $user['id'],
             'email' => $user['email'],
             'name' => $user['name'],
+            'iat' => time(),
             'exp' => time() + (24 * 60 * 60) // 24 hours
-        ]);
+        ];
 
-        $header_encoded = rtrim(strtr(base64_encode($header), '+/', '-_'), '=');
-        $payload_encoded = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
-        $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header_encoded.$payload_encoded", $jwt_secret, true)), '+/', '-_'), '=');
-        $token = "$header_encoded.$payload_encoded.$signature";
+        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $header = rtrim(strtr(base64_encode(json_encode(['alg'=>'HS256','typ'=>'JWT'])), '+/', '-_'), '=');
+        $payload_enc = rtrim(strtr(base64_encode(json_encode($payload)), '+/', '-_'), '=');
+        $sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload_enc", $jwt_secret, true)), '+/', '-_'), '=');
+        $token = "$header.$payload_enc.$sig";
 
-        // After generating $token and $response, add refresh token logic:
-        require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
-        $refreshModel = new RefreshToken($conn);
+        // Generate refresh token
         $refresh_token = bin2hex(random_bytes(32));
-        $expires_at = date('Y-m-d H:i:s', time() + (30 * 24 * 60 * 60)); // 30 days
-        $refreshModel->create($user['id'], $refresh_token, $expires_at);
-        $response['refresh_token'] = $refresh_token;
+        $refresh_expires = date('Y-m-d H:i:s', time() + (7 * 24 * 60 * 60)); // 7 days
+
+        // Store refresh token
+        require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
+        $refreshTokenModel = new RefreshToken($conn);
+        $refreshTokenModel->create($user['id'], $refresh_token, $refresh_expires);
 
         $response = [
             'success' => true,
-            'token' => $token,
-            'user' => [
-                'id' => (int)$user['id'],
-                'email' => $user['email'],
-                'name' => $user['name']
+            'message' => 'Login successful',
+            'data' => [
+                'token' => $token,
+                'refresh_token' => $refresh_token,
+                'user' => [
+                    'id' => (int)$user['id'],
+                    'email' => $user['email'],
+                    'name' => $user['name']
+                ]
             ]
         ];
 
@@ -171,79 +191,83 @@ class AuthController
 
     public static function me()
     {
-        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-            http_response_code(405);
-            echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
-            return;
-        }
-
-        // Get token from Authorization header
-        $headers = getallheaders();
-        $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-        
-        if (!$auth_header || !preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+        $token = AuthHelper::getBearerToken();
+        if (!$token) {
             http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Not authenticated']);
+            echo json_encode(['success' => false, 'message' => 'No token provided']);
             return;
         }
 
-        $token = $matches[1];
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         $jwt_secret = $config['jwt_secret'] ?? 'changeme';
 
-        // Validate JWT token
-        $parts = explode('.', $token);
-        if (count($parts) !== 3) {
+        try {
+            $payload = AuthHelper::verifyJWT($token, $jwt_secret);
+            if (!$payload) {
+                http_response_code(401);
+                echo json_encode(['success' => false, 'message' => 'Invalid token']);
+                return;
+            }
+
+            require_once dirname(__DIR__, 2) . '/src/Db.php';
+            $conn = Db::getConnection($config);
+
+            // Get user details
+            $sql = 'SELECT id, email, name, email_verified, created_at FROM users WHERE id = ?';
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, 'i', $payload['user_id']);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $user = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($stmt);
+
+            if (!$user) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'User not found']);
+                return;
+            }
+
+            $response = [
+                'success' => true,
+                'data' => [
+                    'id' => (int)$user['id'],
+                    'email' => $user['email'],
+                    'name' => $user['name'],
+                    'email_verified' => (bool)$user['email_verified'],
+                    'created_at' => $user['created_at']
+                ]
+            ];
+
+            header('Content-Type: application/json');
+            echo json_encode($response);
+
+        } catch (Exception $e) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Invalid token']);
-            return;
         }
-
-        $header = $parts[0];
-        $payload = $parts[1];
-        $signature = $parts[2];
-
-        $expected_sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload", $jwt_secret, true)), '+/', '-_'), '=');
-        if (!hash_equals($expected_sig, $signature)) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Invalid token signature']);
-            return;
-        }
-
-        $payload_data = json_decode(base64_decode($payload), true);
-        if (!$payload_data || $payload_data['exp'] < time()) {
-            http_response_code(401);
-            echo json_encode(['success' => false, 'message' => 'Token expired']);
-            return;
-        }
-
-        $response = [
-            'success' => true,
-            'user' => [
-                'id' => $payload_data['user_id'],
-                'email' => $payload_data['email'],
-                'name' => $payload_data['name']
-            ]
-        ];
-
-        header('Content-Type: application/json');
-        echo json_encode($response);
     }
 
     public static function logout()
     {
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
+        $token = AuthHelper::getBearerToken();
+        if (!$token) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'message' => 'No token provided']);
             return;
         }
 
-        // For JWT tokens, logout is handled client-side by removing the token
-        // Server-side logout would require token blacklisting (optional enhancement)
-        
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        $conn = Db::getConnection($config);
+
+        // Revoke refresh token
+        require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
+        $refreshTokenModel = new RefreshToken($conn);
+        $refreshTokenModel->revoke($token);
+
         $response = [
             'success' => true,
-            'message' => 'Logged out'
+            'message' => 'Logout successful'
         ];
 
         header('Content-Type: application/json');
@@ -256,61 +280,71 @@ class AuthController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
+
         $input = json_decode(file_get_contents('php://input'), true);
         if (!is_array($input) || empty($input['refresh_token'])) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing refresh_token']);
+            echo json_encode(['success' => false, 'message' => 'Refresh token required']);
             return;
         }
-        $refresh_token = $input['refresh_token'];
+
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
-        require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
         $conn = Db::getConnection($config);
-        $refreshModel = new RefreshToken($conn);
-        $tokenRow = $refreshModel->getByToken($refresh_token);
-        if (!$tokenRow || strtotime($tokenRow['expires_at']) < time() || $tokenRow['revoked'] === 't') {
+
+        // Verify refresh token
+        require_once dirname(__DIR__, 2) . '/models/RefreshToken.php';
+        $refreshTokenModel = new RefreshToken($conn);
+        $refreshToken = $refreshTokenModel->getByToken($input['refresh_token']);
+
+        if (!$refreshToken || $refreshToken['revoked'] || strtotime($refreshToken['expires_at']) < time()) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Invalid or expired refresh token']);
             return;
         }
-        // Get user info
-        require_once dirname(__DIR__, 2) . '/models/User.php';
-        $userModel = new User($conn);
-        $user = $userModel->getById($tokenRow['user_id']);
+
+        // Get user details
+        $sql = 'SELECT id, email, name FROM users WHERE id = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $refreshToken['user_id']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+
         if (!$user) {
-            http_response_code(401);
+            http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'User not found']);
             return;
         }
-        // Issue new JWT
-        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
-        $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
-        $payload = json_encode([
-            'user_id' => (int)$user['id'],
+
+        // Generate new JWT token
+        $payload = [
+            'user_id' => $user['id'],
             'email' => $user['email'],
             'name' => $user['name'],
-            'exp' => time() + (24 * 60 * 60)
-        ]);
-        $header_encoded = rtrim(strtr(base64_encode($header), '+/', '-_'), '=');
-        $payload_encoded = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
-        $signature = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header_encoded.$payload_encoded", $jwt_secret, true)), '+/', '-_'), '=');
-        $token = "$header_encoded.$payload_encoded.$signature";
-        // Optionally, rotate refresh token (issue new one and revoke old)
-        $refreshModel->revoke($refresh_token);
-        $new_refresh_token = bin2hex(random_bytes(32));
-        $expires_at = date('Y-m-d H:i:s', time() + (30 * 24 * 60 * 60)); // 30 days
-        $refreshModel->create($user['id'], $new_refresh_token, $expires_at);
+            'iat' => time(),
+            'exp' => time() + (24 * 60 * 60) // 24 hours
+        ];
+
+        $jwt_secret = $config['jwt_secret'] ?? 'changeme';
+        $header = rtrim(strtr(base64_encode(json_encode(['alg'=>'HS256','typ'=>'JWT'])), '+/', '-_'), '=');
+        $payload_enc = rtrim(strtr(base64_encode(json_encode($payload)), '+/', '-_'), '=');
+        $sig = rtrim(strtr(base64_encode(hash_hmac('sha256', "$header.$payload_enc", $jwt_secret, true)), '+/', '-_'), '=');
+        $token = "$header.$payload_enc.$sig";
+
         $response = [
             'success' => true,
-            'token' => $token,
-            'refresh_token' => $new_refresh_token,
-            'user' => [
-                'id' => (int)$user['id'],
-                'email' => $user['email'],
-                'name' => $user['name']
+            'data' => [
+                'token' => $token,
+                'user' => [
+                    'id' => (int)$user['id'],
+                    'email' => $user['email'],
+                    'name' => $user['name']
+                ]
             ]
         ];
+
         header('Content-Type: application/json');
         echo json_encode($response);
     }
@@ -326,7 +360,7 @@ class AuthController
         $input = json_decode(file_get_contents('php://input'), true);
         if (!is_array($input) || empty($input['email']) || empty($input['code'])) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing required fields: email, code']);
+            echo json_encode(['success' => false, 'message' => 'Email and verification code are required']);
             return;
         }
 
@@ -335,38 +369,32 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email and verification code
-        $sql = 'SELECT id, email, name, verification_code, verification_code_expires_at, is_verified FROM users WHERE email = $1 AND verification_code = $2';
-        $result = pg_query_params($conn, $sql, [$input['email'], $input['code']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, name FROM users WHERE email = ? AND email_verification_token = ? AND email_verification_expires_at > NOW()';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'ss', $input['email'], $input['code']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$user) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid email or verification code']);
+            echo json_encode(['success' => false, 'message' => 'Invalid or expired verification code']);
             return;
         }
 
-        if ($user['is_verified'] === 't') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Email is already verified']);
-            return;
-        }
-
-        // Check if verification code has expired
-        if (strtotime($user['verification_code_expires_at']) < time()) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Verification code has expired. Please request a new one.']);
-            return;
-        }
-
-        // Mark user as verified and clear verification code
-        $update_sql = 'UPDATE users SET is_verified = TRUE, verification_code = NULL, verification_code_expires_at = NULL WHERE id = $1';
-        $update_result = pg_query_params($conn, $update_sql, [$user['id']]);
-
-        if ($update_result === false) {
+        // Update user as verified
+        $update_sql = 'UPDATE users SET email_verified = TRUE, email_verification_token = NULL, email_verification_expires_at = NULL WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'i', $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to verify email: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to verify email: ' . mysqli_error($conn)]);
+            mysqli_stmt_close($update_stmt);
             return;
         }
+        mysqli_stmt_close($update_stmt);
 
         $response = [
             'success' => true,
@@ -393,7 +421,7 @@ class AuthController
         $input = json_decode(file_get_contents('php://input'), true);
         if (!is_array($input) || empty($input['email'])) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Missing email address']);
+            echo json_encode(['success' => false, 'message' => 'Email is required']);
             return;
         }
 
@@ -402,9 +430,13 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email
-        $sql = 'SELECT id, email, name, is_verified FROM users WHERE email = $1';
-        $result = pg_query_params($conn, $sql, [$input['email']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, name, email_verified FROM users WHERE email = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['email']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$user) {
             http_response_code(404);
@@ -412,7 +444,7 @@ class AuthController
             return;
         }
 
-        if ($user['is_verified'] === 't') {
+        if ($user['email_verified']) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Email is already verified']);
             return;
@@ -422,17 +454,20 @@ class AuthController
         $verification_code = sprintf('%06d', mt_rand(0, 999999));
         $verification_expires = date('Y-m-d H:i:s', time() + (10 * 60)); // 10 minutes from now
 
-        // Update user with new verification code
-        $update_sql = 'UPDATE users SET verification_code = $1, verification_code_expires_at = $2 WHERE id = $3';
-        $update_result = pg_query_params($conn, $update_sql, [$verification_code, $verification_expires, $user['id']]);
-
-        if ($update_result === false) {
+        // Update verification code
+        $update_sql = 'UPDATE users SET email_verification_token = ?, email_verification_expires_at = ? WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'ssi', $verification_code, $verification_expires, $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to update verification code: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to update verification code: ' . mysqli_error($conn)]);
+            mysqli_stmt_close($update_stmt);
             return;
         }
+        mysqli_stmt_close($update_stmt);
 
-        // Send new verification email
+        // Send verification email
         try {
             require_once dirname(__DIR__, 2) . '/src/Services/EmailService.php';
             $emailService = new \Services\EmailService();
@@ -440,44 +475,21 @@ class AuthController
             
             if (!$emailSent) {
                 error_log("Failed to send verification email to: " . $user['email']);
-                // In development mode, we'll still return success but inform about the failure
-                if ($config['APP_DEBUG'] ?? false) {
-                    $response = [
-                        'success' => true,
-                        'message' => 'Email sending failed, but here is your verification code for testing.',
-                        'verification_code' => $verification_code // Only in development
-                    ];
-                } else {
-                    http_response_code(500);
-                    echo json_encode(['success' => false, 'message' => 'Failed to send verification email']);
-                    return;
-                }
-            } else {
-                $response = [
-                    'success' => true,
-                    'message' => 'Verification code sent successfully! Please check your email.'
-                ];
             }
         } catch (Exception $e) {
             error_log("Error sending verification email: " . $e->getMessage());
-            // In development mode, we'll still return success but inform about the failure
-            if ($config['APP_DEBUG'] ?? false) {
-                $response = [
-                    'success' => true,
-                    'message' => 'Email sending failed, but here is your verification code for testing.',
-                    'verification_code' => $verification_code // Only in development
-                ];
-            } else {
-                http_response_code(500);
-                echo json_encode(['success' => false, 'message' => 'Failed to send verification email']);
-                return;
-            }
         }
 
         $response = [
             'success' => true,
             'message' => 'Verification code sent successfully! Please check your email.'
         ];
+
+        // In development mode, include verification code for testing (only if email fails)
+        if (($config['APP_DEBUG'] ?? false) && !$emailSent) {
+            $response['verification_code'] = $verification_code;
+            $response['message'] = 'Verification code sent! Email sending failed, but here is your verification code for testing.';
+        }
 
         header('Content-Type: application/json');
         echo json_encode($response);
@@ -494,14 +506,7 @@ class AuthController
         $input = json_decode(file_get_contents('php://input'), true);
         if (!is_array($input) || empty($input['email'])) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Email address is required']);
-            return;
-        }
-
-        // Validate email format
-        if (!filter_var($input['email'], FILTER_VALIDATE_EMAIL)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid email format']);
+            echo json_encode(['success' => false, 'message' => 'Email is required']);
             return;
         }
 
@@ -509,13 +514,17 @@ class AuthController
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
-        // Check if user exists
-        $sql = 'SELECT id, email, name FROM users WHERE email = $1';
-        $result = pg_query_params($conn, $sql, [$input['email']]);
-        $user = pg_fetch_assoc($result);
+        // Find user by email
+        $sql = 'SELECT id, email, name FROM users WHERE email = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['email']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
-        // Always return success to prevent email enumeration attacks
         if (!$user) {
+            // Don't reveal if user exists or not
             $response = [
                 'success' => true,
                 'message' => 'If an account with this email exists, a password reset link has been sent.'
@@ -525,19 +534,22 @@ class AuthController
             return;
         }
 
-        // Generate secure reset token
+        // Generate reset token
         $resetToken = bin2hex(random_bytes(32));
         $resetExpires = date('Y-m-d H:i:s', time() + (60 * 60)); // 1 hour from now
 
         // Update user with reset token
-        $update_sql = 'UPDATE users SET password_reset_token = $1, password_reset_expires_at = $2 WHERE id = $3';
-        $update_result = pg_query_params($conn, $update_sql, [$resetToken, $resetExpires, $user['id']]);
-
-        if ($update_result === false) {
+        $update_sql = 'UPDATE users SET password_reset_token = ?, password_reset_expires_at = ? WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'ssi', $resetToken, $resetExpires, $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to process password reset request']);
+            echo json_encode(['success' => false, 'message' => 'Failed to update reset token: ' . mysqli_error($conn)]);
+            mysqli_stmt_close($update_stmt);
             return;
         }
+        mysqli_stmt_close($update_stmt);
 
         // Send password reset email
         try {
@@ -556,6 +568,12 @@ class AuthController
             'success' => true,
             'message' => 'If an account with this email exists, a password reset link has been sent.'
         ];
+
+        // In development mode, include reset token for testing (only if email fails)
+        if (($config['APP_DEBUG'] ?? false) && !$emailSent) {
+            $response['reset_token'] = $resetToken;
+            $response['message'] = 'Password reset link sent! Email sending failed, but here is your reset token for testing.';
+        }
 
         header('Content-Type: application/json');
         echo json_encode($response);
@@ -576,21 +594,18 @@ class AuthController
             return;
         }
 
-        // Validate password length
-        if (strlen($input['password']) < 6) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Password must be at least 6 characters long']);
-            return;
-        }
-
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
         // Find user by reset token
-        $sql = 'SELECT id, email, name, password_reset_expires_at FROM users WHERE password_reset_token = $1';
-        $result = pg_query_params($conn, $sql, [$input['token']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, name FROM users WHERE password_reset_token = ? AND password_reset_expires_at > NOW()';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['token']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$user) {
             http_response_code(400);
@@ -598,25 +613,21 @@ class AuthController
             return;
         }
 
-        // Check if token has expired
-        if (strtotime($user['password_reset_expires_at']) < time()) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Reset token has expired. Please request a new one.']);
-            return;
-        }
-
         // Hash new password
         $password_hash = password_hash($input['password'], PASSWORD_DEFAULT);
 
         // Update password and clear reset token
-        $update_sql = 'UPDATE users SET password_hash = $1, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = $2';
-        $update_result = pg_query_params($conn, $update_sql, [$password_hash, $user['id']]);
-
-        if ($update_result === false) {
+        $update_sql = 'UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'si', $password_hash, $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to reset password']);
+            echo json_encode(['success' => false, 'message' => 'Failed to update password: ' . mysqli_error($conn)]);
+            mysqli_stmt_close($update_stmt);
             return;
         }
+        mysqli_stmt_close($update_stmt);
 
         $response = [
             'success' => true,
@@ -646,31 +657,24 @@ class AuthController
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
 
-        // Find user by reset token
-        $sql = 'SELECT id, email, name, password_reset_expires_at FROM users WHERE password_reset_token = $1';
-        $result = pg_query_params($conn, $sql, [$input['token']]);
-        $user = pg_fetch_assoc($result);
+        // Check if reset token is valid
+        $sql = 'SELECT id FROM users WHERE password_reset_token = ? AND password_reset_expires_at > NOW()';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['token']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$user) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid reset token']);
-            return;
-        }
-
-        // Check if token has expired
-        if (strtotime($user['password_reset_expires_at']) < time()) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Reset token has expired']);
+            echo json_encode(['success' => false, 'message' => 'Invalid or expired reset token']);
             return;
         }
 
         $response = [
             'success' => true,
-            'message' => 'Token is valid',
-            'user' => [
-                'email' => $user['email'],
-                'name' => $user['name']
-            ]
+            'message' => 'Reset token is valid'
         ];
 
         header('Content-Type: application/json');

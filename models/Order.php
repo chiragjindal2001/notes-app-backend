@@ -1,150 +1,182 @@
 <?php
 namespace Models;
 
-use PDO;
-use PDOException;
-
 class Order
 {
     private $conn;
     
-    public function __construct($pdo)
+    public function __construct($conn)
     {
-        $this->conn = $pdo;
+        $this->conn = $conn;
     }
 
     public function create($orderData, $items)
     {
         // Begin transaction
-        pg_query($this->conn, "BEGIN");
+        mysqli_begin_transaction($this->conn);
         
         $sql = 'INSERT INTO orders (
-            order_id, 
-            customer_email, 
-            customer_name, 
-            phone,
+            user_id, 
             total_amount, 
             status, 
             razorpay_order_id, 
-            user_id, 
             created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, NOW()
-        ) RETURNING id, order_id';
+            ?, ?, ?, ?, NOW()
+        )';
         $params = [
-            $orderData['order_id'],
-            $orderData['customer_email'],
-            $orderData['customer_name'],
-            $orderData['phone'] ?? null,
+            $orderData['user_id'] ?? null,
             $orderData['total_amount'],
             $orderData['status'] ?? 'pending',
-            $orderData['razorpay_order_id'] ?? null,
-            $orderData['user_id'] ?? null
+            $orderData['razorpay_order_id'] ?? null
         ];
-        $result = pg_query_params($this->conn, $sql, $params);
-        $order = pg_fetch_assoc($result);
-        if (!$order) {
-            pg_query($this->conn, "ROLLBACK");
+        
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'idss', 
+            $params[0], $params[1], $params[2], $params[3]
+        );
+        mysqli_stmt_execute($stmt);
+        $orderId = mysqli_insert_id($this->conn);
+        mysqli_stmt_close($stmt);
+        
+        if (!$orderId) {
+            mysqli_rollback($this->conn);
             error_log('Failed to create order');
             return false;
         }
-        $orderId = $order['order_id'];
+        
         $totalAmount = 0;
         foreach ($items as $item) {
             // Get note price
-            $noteSql = 'SELECT price FROM notes WHERE id = $1';
-            $noteResult = pg_query_params($this->conn, $noteSql, [$item['note_id']]);
-            $note = pg_fetch_assoc($noteResult);
+            $noteSql = 'SELECT price FROM notes WHERE id = ?';
+            $noteStmt = mysqli_prepare($this->conn, $noteSql);
+            mysqli_stmt_bind_param($noteStmt, 'i', $item['note_id']);
+            mysqli_stmt_execute($noteStmt);
+            $noteResult = mysqli_stmt_get_result($noteStmt);
+            $note = mysqli_fetch_assoc($noteResult);
+            mysqli_stmt_close($noteStmt);
+            
             if (!$note) {
-                pg_query($this->conn, "ROLLBACK");
+                mysqli_rollback($this->conn);
                 error_log('Invalid note_id: ' . $item['note_id']);
                 return false;
             }
+            
             $itemPrice = $note['price'];
             $totalAmount += $itemPrice;
-            $itemSql = 'INSERT INTO order_items (order_id, note_id, price) VALUES ($1, $2, $3)';
-            pg_query_params($this->conn, $itemSql, [$orderId, $item['note_id'], $itemPrice]);
+            
+            $itemSql = 'INSERT INTO order_items (order_id, note_id, price) VALUES (?, ?, ?)';
+            $itemStmt = mysqli_prepare($this->conn, $itemSql);
+            mysqli_stmt_bind_param($itemStmt, 'iid', $orderId, $item['note_id'], $itemPrice);
+            mysqli_stmt_execute($itemStmt);
+            mysqli_stmt_close($itemStmt);
         }
+        
         // Update order total amount
-        $updateSql = 'UPDATE orders SET total_amount = $1 WHERE order_id = $2';
-        pg_query_params($this->conn, $updateSql, [$totalAmount, $orderId]);
-        pg_query($this->conn, "COMMIT");
+        $updateSql = 'UPDATE orders SET total_amount = ? WHERE id = ?';
+        $updateStmt = mysqli_prepare($this->conn, $updateSql);
+        mysqli_stmt_bind_param($updateStmt, 'di', $totalAmount, $orderId);
+        mysqli_stmt_execute($updateStmt);
+        mysqli_stmt_close($updateStmt);
+        
+        mysqli_commit($this->conn);
         return $this->getById($orderId);
     }
 
     public function getById($orderId)
     {
-        $sql = 'SELECT * FROM orders WHERE order_id = $1';
-        $result = pg_query_params($this->conn, $sql, [$orderId]);
-        $order = pg_fetch_assoc($result);
+        $sql = 'SELECT * FROM orders WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $orderId);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $order = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        
         if (!$order) {
             return null;
         }
-        $itemSql = 'SELECT oi.*, n.title, n.description FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = $1';
-        $itemResult = pg_query_params($this->conn, $itemSql, [$orderId]);
+        
+        $itemSql = 'SELECT oi.*, n.title, n.description FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = ?';
+        $itemStmt = mysqli_prepare($this->conn, $itemSql);
+        mysqli_stmt_bind_param($itemStmt, 'i', $orderId);
+        mysqli_stmt_execute($itemStmt);
+        $itemResult = mysqli_stmt_get_result($itemStmt);
         $items = [];
-        while ($row = pg_fetch_assoc($itemResult)) {
+        while ($row = mysqli_fetch_assoc($itemResult)) {
             $items[] = $row;
         }
+        mysqli_stmt_close($itemStmt);
+        
         $order['items'] = $items;
         return $order;
     }
 
     public function findByRazorpayOrderId($razorpayOrderId)
     {
-        $sql = 'SELECT * FROM orders WHERE razorpay_order_id = $1';
-        $result = pg_query_params($this->conn, $sql, [$razorpayOrderId]);
-        return pg_fetch_assoc($result);
+        $sql = 'SELECT * FROM orders WHERE razorpay_order_id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $razorpayOrderId);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        return $row;
     }
 
     public function updateStatusByRazorpayOrderId($razorpayOrderId, $status, $paymentData = [])
     {
         // Only update status in orders table
-        $sql = 'UPDATE orders SET status = $1, updated_at = NOW() WHERE razorpay_order_id = $2';
-        $params = [$status, $razorpayOrderId];
-        $result = pg_query_params($this->conn, $sql, $params);
-        return pg_affected_rows($result) > 0;
+        $sql = 'UPDATE orders SET status = ?, updated_at = NOW() WHERE razorpay_order_id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'ss', $status, $razorpayOrderId);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        return $affectedRows > 0;
     }
 
     // New method to insert or update payment status
     public function upsertPaymentStatus($orderId, $razorpayPaymentId, $status, $method = null)
     {
         // Try to update first
-        $updateSql = 'UPDATE payment_status SET status = $1, method = $2, modified_at = NOW() WHERE order_id = $3 AND razorpay_payment_id = $4';
-        $updateResult = pg_query_params($this->conn, $updateSql, [$status, $method, $orderId, $razorpayPaymentId]);
-        if (pg_affected_rows($updateResult) > 0) {
-            return true;
-        }
-        // If not updated, insert
-        $insertSql = 'INSERT INTO payment_status (order_id, razorpay_payment_id, status, method, created_at, modified_at) VALUES ($1, $2, $3, $4, NOW(), NOW())';
-        $insertResult = pg_query_params($this->conn, $insertSql, [$orderId, $razorpayPaymentId, $status, $method]);
-        return pg_affected_rows($insertResult) > 0;
+        $updateSql = 'UPDATE orders SET status = ?, payment_method = ?, razorpay_payment_id = ?, updated_at = NOW() WHERE id = ?';
+        $updateStmt = mysqli_prepare($this->conn, $updateSql);
+        mysqli_stmt_bind_param($updateStmt, 'sssi', $status, $method, $razorpayPaymentId, $orderId);
+        mysqli_stmt_execute($updateStmt);
+        $affectedRows = mysqli_stmt_affected_rows($updateStmt);
+        mysqli_stmt_close($updateStmt);
+        
+        return $affectedRows > 0;
     }
 
     public function list($filters = [], $pagination = [], $sort = [])
     {
         $where = [];
         $params = [];
-        $paramIndex = 1;
+        $paramTypes = '';
+        
         if (!empty($filters['status'])) {
-            $where[] = 'status = $' . $paramIndex;
+            $where[] = 'status = ?';
             $params[] = $filters['status'];
-            $paramIndex++;
+            $paramTypes .= 's';
         }
         if (!empty($filters['user_id'])) {
-            $where[] = 'user_id = $' . $paramIndex;
+            $where[] = 'user_id = ?';
             $params[] = $filters['user_id'];
-            $paramIndex++;
+            $paramTypes .= 'i';
         }
         if (!empty($filters['email'])) {
-            $where[] = 'customer_email = $' . $paramIndex;
+            $where[] = 'user_id IN (SELECT id FROM users WHERE email = ?)';
             $params[] = $filters['email'];
-            $paramIndex++;
+            $paramTypes .= 's';
         }
+        
         $sql = 'SELECT * FROM orders';
         if (!empty($where)) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
+        
         if (!empty($sort['field']) && !empty($sort['direction'])) {
             $validFields = ['id', 'created_at', 'total_amount', 'status'];
             $validDirections = ['ASC', 'DESC'];
@@ -154,27 +186,51 @@ class Order
         } else {
             $sql .= ' ORDER BY created_at DESC';
         }
+        
         if (!empty($pagination['limit'])) {
-            $sql .= ' LIMIT $' . $paramIndex;
+            $sql .= ' LIMIT ?';
             $params[] = (int)$pagination['limit'];
-            $paramIndex++;
+            $paramTypes .= 'i';
+            
             if (!empty($pagination['offset'])) {
-                $sql .= ' OFFSET $' . $paramIndex;
+                $sql .= ' OFFSET ?';
                 $params[] = (int)$pagination['offset'];
-                $paramIndex++;
+                $paramTypes .= 'i';
             }
         }
-        $result = pg_query_params($this->conn, $sql, $params);
+        
+        $stmt = mysqli_prepare($this->conn, $sql);
+        if (!empty($paramTypes)) {
+            mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        }
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         $orders = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             $orders[] = $row;
         }
+        mysqli_stmt_close($stmt);
+        
+        // Get total count
         $countSql = 'SELECT COUNT(*) as total FROM orders';
         if (!empty($where)) {
             $countSql .= ' WHERE ' . implode(' AND ', $where);
         }
-        $countResult = pg_query_params($this->conn, $countSql, $params);
-        $totalRow = pg_fetch_assoc($countResult);
+        
+        $countStmt = mysqli_prepare($this->conn, $countSql);
+        if (!empty($paramTypes)) {
+            // Remove limit/offset parameters for count query
+            $countParams = array_slice($params, 0, count($params) - (isset($pagination['limit']) ? 1 : 0) - (isset($pagination['offset']) ? 1 : 0));
+            $countParamTypes = substr($paramTypes, 0, strlen($paramTypes) - (isset($pagination['limit']) ? 1 : 0) - (isset($pagination['offset']) ? 1 : 0));
+            if (!empty($countParamTypes)) {
+                mysqli_stmt_bind_param($countStmt, $countParamTypes, ...$countParams);
+            }
+        }
+        mysqli_stmt_execute($countStmt);
+        $countResult = mysqli_stmt_get_result($countStmt);
+        $totalRow = mysqli_fetch_assoc($countResult);
+        mysqli_stmt_close($countStmt);
+        
         $total = $totalRow ? $totalRow['total'] : 0;
         return [
             'data' => $orders,
@@ -184,3 +240,4 @@ class Order
         ];
     }
 }
+

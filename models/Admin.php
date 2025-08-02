@@ -9,8 +9,14 @@ class Admin
 
     public function getByUsername($username)
     {
-        $result = pg_query_params($this->conn, 'SELECT id, username, password_hash, role FROM admins WHERE username = $1', [$username]);
-        return pg_fetch_assoc($result);
+        $sql = 'SELECT id, username, password_hash FROM admins WHERE username = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $username);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        return $row;
     }
 
     // Optionally: create, update, delete admin users, list admins, etc.

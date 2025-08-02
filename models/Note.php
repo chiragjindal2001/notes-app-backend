@@ -11,63 +11,88 @@ class Note
     {
         $where = [];
         $params = [];
-        $paramTypes = [];
-        $idx = 1;
+        $paramTypes = '';
+        $idx = 0;
+        
         if (!empty($filters['subject'])) {
-            $where[] = 'subject = $' . $idx;
+            $where[] = 'subject = ?';
             $params[] = $filters['subject'];
+            $paramTypes .= 's';
             $idx++;
         }
         if (!empty($filters['search'])) {
-            $where[] = '(title ILIKE $' . $idx . ' OR description ILIKE $' . $idx . ')';
+            $where[] = '(title LIKE ? OR description LIKE ?)';
             $params[] = '%' . $filters['search'] . '%';
-            $idx++;
+            $params[] = '%' . $filters['search'] . '%';
+            $paramTypes .= 'ss';
+            $idx += 2;
         }
         if (!empty($filters['min_price'])) {
-            $where[] = 'price >= $' . $idx;
+            $where[] = 'price >= ?';
             $params[] = $filters['min_price'];
+            $paramTypes .= 'd';
             $idx++;
         }
         if (!empty($filters['max_price'])) {
-            $where[] = 'price <= $' . $idx;
+            $where[] = 'price <= ?';
             $params[] = $filters['max_price'];
+            $paramTypes .= 'd';
             $idx++;
         }
         $where[] = 'status = \'active\'';
         $where[] = 'is_active = TRUE';
+        
         $sql = 'SELECT * FROM notes';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
+        
         $order = 'created_at DESC';
         if (!empty($sort['by']) && in_array($sort['by'], ['price', 'created_at'])) {
             $order = $sort['by'] . ' ' . (strtoupper($sort['order'] ?? 'DESC'));
         }
         $sql .= ' ORDER BY ' . $order;
+        
         $limit = (int)($pagination['limit'] ?? 12);
         $offset = (int)($pagination['offset'] ?? 0);
-        $sql .= ' LIMIT $' . $idx . ' OFFSET $' . ($idx + 1);
+        $sql .= ' LIMIT ? OFFSET ?';
         $params[] = $limit;
         $params[] = $offset;
-        $result = pg_query_params($this->conn, $sql, $params);
+        $paramTypes .= 'ii';
+        
+        $stmt = mysqli_prepare($this->conn, $sql);
+        if (!empty($paramTypes)) {
+            mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        }
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
         $notes = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             $notes[] = $row;
         }
+        mysqli_stmt_close($stmt);
         return $notes;
     }
 
     public function getById($id)
     {
-        $result = pg_query_params($this->conn, 'SELECT * FROM notes WHERE id = $1 AND is_active = TRUE', [$id]);
-        return pg_fetch_assoc($result);
+        $sql = 'SELECT * FROM notes WHERE id = ? AND is_active = TRUE';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        return $row;
     }
 
     public function getSubjects()
     {
-        $result = pg_query($this->conn, "SELECT subject, COUNT(*) as count FROM notes WHERE status = 'active' AND is_active = TRUE GROUP BY subject ORDER BY count DESC");
+        $sql = "SELECT subject, COUNT(*) as count FROM notes WHERE status = 'active' AND is_active = TRUE GROUP BY subject ORDER BY count DESC";
+        $result = mysqli_query($this->conn, $sql);
         $subjects = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             $subjects[] = $row;
         }
         return $subjects;
@@ -76,83 +101,128 @@ class Note
     // Admin methods
     public function create($data)
     {
-        $fields = ['title','description','subject','price','tags','features','topics','status','preview_image','sample_pages'];
+        $fields = ['title','description','subject','price','file_path','file_size','user_id'];
         $cols = [];
         $placeholders = [];
         $params = [];
-        $idx = 1;
+        $paramTypes = '';
+        
         foreach ($fields as $f) {
             if (isset($data[$f])) {
                 $cols[] = $f;
-                $placeholders[] = '$' . $idx;
+                $placeholders[] = '?';
                 $params[] = is_array($data[$f]) ? json_encode($data[$f]) : $data[$f];
-                $idx++;
+                $paramTypes .= is_numeric($data[$f]) ? 'i' : 's';
             }
         }
-        $sql = 'INSERT INTO notes (' . implode(',', $cols) . ') VALUES (' . implode(',', $placeholders) . ') RETURNING *';
-        $result = pg_query_params($this->conn, $sql, $params);
-        return pg_fetch_assoc($result);
+        
+        $sql = 'INSERT INTO notes (' . implode(',', $cols) . ') VALUES (' . implode(',', $placeholders) . ')';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        if (!empty($paramTypes)) {
+            mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        }
+        mysqli_stmt_execute($stmt);
+        $insertId = mysqli_insert_id($this->conn);
+        mysqli_stmt_close($stmt);
+        
+        return $this->getById($insertId);
     }
 
     public function update($id, $data)
     {
-        $fields = ['title','description','subject','price','tags','features','topics','status','preview_image','sample_pages'];
+        $fields = ['title','description','subject','price','file_path','file_size'];
         $set = [];
         $params = [];
-        $idx = 1;
+        $paramTypes = '';
+        
         foreach ($fields as $f) {
             if (isset($data[$f])) {
-                $set[] = "$f = $" . $idx;
+                $set[] = "$f = ?";
                 $params[] = is_array($data[$f]) ? json_encode($data[$f]) : $data[$f];
-                $idx++;
+                $paramTypes .= is_numeric($data[$f]) ? 'i' : 's';
             }
         }
+        
         if (!$set) return false;
+        
         $params[] = $id;
-        $sql = 'UPDATE notes SET ' . implode(',', $set) . ' WHERE id = $' . $idx . ' RETURNING *';
-        $result = pg_query_params($this->conn, $sql, $params);
-        return pg_fetch_assoc($result);
+        $paramTypes .= 'i';
+        
+        $sql = 'UPDATE notes SET ' . implode(',', $set) . ' WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        return $this->getById($id);
     }
 
     public function delete($id)
     {
-        $result = pg_query_params($this->conn, 'DELETE FROM notes WHERE id = $1 RETURNING id', [$id]);
-        return pg_fetch_assoc($result);
+        $sql = 'DELETE FROM notes WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        return $affectedRows > 0 ? ['id' => $id] : false;
     }
 
     public function updateStatus($id, $status)
     {
-        $result = pg_query_params($this->conn, 'UPDATE notes SET status = $1 WHERE id = $2 RETURNING id, title, status', [$status, $id]);
-        return pg_fetch_assoc($result);
+        $sql = 'UPDATE notes SET status = ? WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'si', $status, $id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        return $this->getById($id);
     }
 
     public function count($filters = [])
     {
         $where = [];
         $params = [];
+        $paramTypes = '';
+        
         if (!empty($filters['subject'])) {
-            $where[] = 'subject = :subject';
-            $params[':subject'] = $filters['subject'];
+            $where[] = 'subject = ?';
+            $params[] = $filters['subject'];
+            $paramTypes .= 's';
         }
         if (!empty($filters['search'])) {
-            $where[] = '(title ILIKE :search OR description ILIKE :search)';
-            $params[':search'] = '%' . $filters['search'] . '%';
+            $where[] = '(title LIKE ? OR description LIKE ?)';
+            $params[] = '%' . $filters['search'] . '%';
+            $params[] = '%' . $filters['search'] . '%';
+            $paramTypes .= 'ss';
         }
         if (!empty($filters['min_price'])) {
-            $where[] = 'price >= :min_price';
-            $params[':min_price'] = $filters['min_price'];
+            $where[] = 'price >= ?';
+            $params[] = $filters['min_price'];
+            $paramTypes .= 'd';
         }
         if (!empty($filters['max_price'])) {
-            $where[] = 'price <= :max_price';
-            $params[':max_price'] = $filters['max_price'];
+            $where[] = 'price <= ?';
+            $params[] = $filters['max_price'];
+            $paramTypes .= 'd';
         }
         $where[] = 'status = \'active\'';
-        $sql = 'SELECT COUNT(*) FROM notes';
+        
+        $sql = 'SELECT COUNT(*) as count FROM notes';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
-        $stmt = pg_query_params($sql);
-        $stmt->execute($params);
-        return (int)$stmt->fetchColumn();
+        
+        $stmt = mysqli_prepare($this->conn, $sql);
+        if (!empty($paramTypes)) {
+            mysqli_stmt_bind_param($stmt, $paramTypes, ...$params);
+        }
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        
+        return (int)$row['count'];
     }
 }

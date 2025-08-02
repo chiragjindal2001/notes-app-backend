@@ -32,8 +32,10 @@ class GoogleAuthService {
         ]));
         
         // Initialize database connection and user model
-        $db = Database::getConnection();
-        $this->userModel = new User($db);
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        $conn = Db::getConnection($config);
+        $this->userModel = new User($conn);
     }
 
     public function verifyIdToken($idToken) {

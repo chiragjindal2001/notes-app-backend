@@ -41,7 +41,6 @@ class OrdersController
             $conn = Db::getConnection($config);
             $orderModel = new \Models\Order($conn);
             
-            // Get order details
             $order = $orderModel->getById($orderId);
             
             if (!$order) {
@@ -58,15 +57,19 @@ class OrdersController
             }
             
             // Get user email
-            $userSql = 'SELECT email FROM users WHERE id = $1';
-            $userResult = pg_query_params($conn, $userSql, [$user_id]);
-            $user = pg_fetch_assoc($userResult);
+            $userSql = 'SELECT email FROM users WHERE id = ?';
+            $userStmt = mysqli_prepare($conn, $userSql);
+            mysqli_stmt_bind_param($userStmt, 'i', $user_id);
+            mysqli_stmt_execute($userStmt);
+            $userResult = mysqli_stmt_get_result($userStmt);
+            $user = mysqli_fetch_assoc($userResult);
+            mysqli_stmt_close($userStmt);
             
             $response = [
                 'success' => true,
                 'message' => 'Order details fetched successfully',
                 'data' => [
-                    'order_id' => $order['order_id'],
+                    'order_id' => $order['id'],
                     'customer_email' => $user['email'] ?? '',
                     'total_amount' => (float)$order['total_amount'],
                     'status' => $order['status'],

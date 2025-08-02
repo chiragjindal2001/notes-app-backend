@@ -237,11 +237,18 @@ This is an automated email. Please do not reply to this message.";
     public function getUserEmail($userId)
     {
         try {
-            $pdo = \Helpers\Database::getConnection();
-            $stmt = pg_query_params($pdo, 'SELECT email FROM users WHERE id = $1', [$userId]);
-            $result = pg_fetch_assoc($stmt);
+            $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+            require_once dirname(__DIR__, 2) . '/src/Db.php';
+            $conn = Db::getConnection($config);
+            $sql = 'SELECT email FROM users WHERE id = ?';
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, 'i', $userId);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $row = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($stmt);
             
-            return $result ? $result['email'] : null;
+            return $row ? $row['email'] : null;
         } catch (\Exception $e) {
             error_log("Error fetching user email: " . $e->getMessage());
             return null;
@@ -254,12 +261,19 @@ This is an automated email. Please do not reply to this message.";
     public function getUserName($userId)
     {
         try {
-            $pdo = \Helpers\Database::getConnection();
-            $stmt = pg_query_params($pdo, 'SELECT name FROM users WHERE id = $1', [$userId]);
-            $result = pg_fetch_assoc($stmt);
+            $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+            require_once dirname(__DIR__, 2) . '/src/Db.php';
+            $conn = Db::getConnection($config);
+            $sql = 'SELECT name FROM users WHERE id = ?';
+            $stmt = mysqli_prepare($conn, $sql);
+            mysqli_stmt_bind_param($stmt, 'i', $userId);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $row = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($stmt);
             
-            if ($result) {
-                $firstName = $result['name'] ?? 'User';
+            if ($row) {
+                $firstName = $row['name'] ?? 'User';
                 return $firstName ?: 'User';
             }
             

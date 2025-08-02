@@ -9,21 +9,21 @@ class Database {
         if (self::$connection === null) {
             $dbConfig = Config::database();
             
-            $connectionString = sprintf(
-                "host=%s port=%d dbname=%s user=%s password=%s",
+            self::$connection = mysqli_connect(
                 $dbConfig['host'],
-                $dbConfig['port'],
-                $dbConfig['database'],
                 $dbConfig['user'],
-                $dbConfig['password']
+                $dbConfig['password'],
+                $dbConfig['database'],
+                $dbConfig['port']
             );
             
-            self::$connection = pg_connect($connectionString);
-            
             if (!self::$connection) {
-                error_log('Database connection failed: ' . pg_last_error());
+                error_log('Database connection failed: ' . mysqli_connect_error());
                 throw new Exception('Failed to connect to database');
             }
+            
+            // Set charset to utf8mb4
+            mysqli_set_charset(self::$connection, 'utf8mb4');
         }
         
         return self::$connection;
@@ -31,7 +31,7 @@ class Database {
     
     public static function closeConnection() {
         if (self::$connection !== null) {
-            pg_close(self::$connection);
+            mysqli_close(self::$connection);
             self::$connection = null;
         }
     }

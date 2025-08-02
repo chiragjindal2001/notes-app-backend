@@ -9,33 +9,58 @@ class Coupon
 
     public function validate($code, $order_amount = null)
     {
-        $result = pg_query_params($this->conn, 'SELECT * FROM coupons WHERE code = $1', [strtoupper($code)]);
-        $coupon = pg_fetch_assoc($result);
+        $sql = 'SELECT * FROM coupons WHERE code = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', strtoupper($code));
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $coupon = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        
         if (!$coupon) return null;
         if ($coupon['expires_at'] && strtotime($coupon['expires_at']) < time()) return null;
         if ($coupon['max_uses'] && $coupon['used_count'] >= $coupon['max_uses']) return null;
-        if ($order_amount !== null && $coupon['min_amount'] && $order_amount < $coupon['min_amount']) return null;
+        if ($order_amount !== null && isset($coupon['min_amount']) && $coupon['min_amount'] && $order_amount < $coupon['min_amount']) return null;
         return $coupon;
     }
 
     public function create($data)
     {
-        $sql = 'INSERT INTO coupons (code, type, value, min_amount, max_uses, expires_at) VALUES (:code, :type, :value, :min_amount, :max_uses, :expires_at) RETURNING *';
-        $stmt = pg_query_params($sql);
-        $stmt->execute([
-            ':code' => strtoupper($data['code']),
-            ':type' => $data['type'],
-            ':value' => $data['value'],
-            ':min_amount' => $data['min_amount'],
-            ':max_uses' => $data['max_uses'],
-            ':expires_at' => $data['expires_at']
-        ]);
-        return $stmt->fetch();
+        $sql = 'INSERT INTO coupons (code, discount_percent, max_uses, expires_at) VALUES (?, ?, ?, ?)';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'siis', 
+            strtoupper($data['code']),
+            $data['discount_percent'],
+            $data['max_uses'],
+            $data['expires_at']
+        );
+        mysqli_stmt_execute($stmt);
+        $insertId = mysqli_insert_id($this->conn);
+        mysqli_stmt_close($stmt);
+        
+        return $this->getById($insertId);
+    }
+
+    public function getById($id)
+    {
+        $sql = 'SELECT * FROM coupons WHERE id = ?';
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $row = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
+        return $row;
     }
 
     public function list()
     {
-        $stmt = pg_query('SELECT * FROM coupons ORDER BY expires_at DESC');
-        return $stmt->fetchAll();
+        $sql = 'SELECT * FROM coupons ORDER BY expires_at DESC';
+        $result = mysqli_query($this->conn, $sql);
+        $coupons = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $coupons[] = $row;
+        }
+        return $coupons;
     }
 }

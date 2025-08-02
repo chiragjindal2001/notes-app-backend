@@ -18,8 +18,10 @@ class CheckoutController
         }
 
         // Get database connection
-        $pdo = Database::getConnection();
-        $orderModel = new Order($pdo);
+        $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+        require_once dirname(__DIR__, 2) . '/src/Db.php';
+        $conn = Db::getConnection($config);
+        $orderModel = new Order($conn);
         
         $input = json_decode(file_get_contents('php://input'), true);
         
@@ -102,7 +104,11 @@ class CheckoutController
             return;
         }
         // Update order with razorpay_order_id
-        pg_query_params($pdo, 'UPDATE orders SET razorpay_order_id = $1 WHERE order_id = $2', [$razorpay_order['id'], $order_id]);
+        $updateSql = 'UPDATE orders SET razorpay_order_id = ? WHERE id = ?';
+        $updateStmt = mysqli_prepare($conn, $updateSql);
+        mysqli_stmt_bind_param($updateStmt, 'si', $razorpay_order['id'], $order_id);
+        mysqli_stmt_execute($updateStmt);
+        mysqli_stmt_close($updateStmt);
 
         $response = [
             'success' => true,
@@ -166,18 +172,20 @@ class CheckoutController
             ) {
                 try {
                     // Get database connection
-                    $pdo = Database::getConnection();
-                    pg_query($pdo, 'BEGIN');
-                    $orderModel = new Order($pdo);
-                    // Update order status to 'paid'
+                    $config = require dirname(__DIR__, 2) . '/config/config.development.php';
+                    require_once dirname(__DIR__, 2) . '/src/Db.php';
+                    $conn = Db::getConnection($config);
+                    mysqli_begin_transaction($conn);
+                    $orderModel = new Order($conn);
+                    // Update order status to 'completed'
                     $updated = $orderModel->updateStatusByRazorpayOrderId(
                         $razorpay_order_id,
-                        'paid'
+                        'completed'
                     );
                     // Fetch order_id from orders table
                     $orderRow = $orderModel->findByRazorpayOrderId($razorpay_order_id);
-                    if ($orderRow && isset($orderRow['order_id'])) {
-                        $orderModel->upsertPaymentStatus($orderRow['order_id'], $payment_id, $payment['status'], $payment['method'] ?? null);
+                    if ($orderRow && isset($orderRow['id'])) {
+                        $orderModel->upsertPaymentStatus($orderRow['id'], $payment_id, $payment['status'], $payment['method'] ?? null);
                     }
                     if ($updated) {
                         // Send payment confirmation email
@@ -191,7 +199,7 @@ class CheckoutController
                                 
                                 if ($userEmail) {
                                     $emailData = [
-                                        'order_id' => $orderDetails['order_id'],
+                                        'order_id' => $orderDetails['id'],
                                         'payment_id' => $input['razorpay_payment_id'],
                                         'total_amount' => $orderDetails['total_amount']
                                     ];
@@ -199,53 +207,50 @@ class CheckoutController
                                     $emailService->sendPaymentConfirmation($userEmail, $userName, $emailData);
                                 }
                             }
-                        } catch (\Exception $emailError) {
-                            // Log email error but don't fail the payment verification
-                            error_log('Failed to send payment confirmation email: ' . $emailError->getMessage());
+                        } catch (Exception $e) {
+                            error_log('Failed to send payment confirmation email: ' . $e->getMessage());
                         }
                         
-                        pg_query($pdo, 'COMMIT');
-                        http_response_code(200);
-                        echo json_encode([
+                        mysqli_commit($conn);
+                        $response = [
                             'success' => true,
-                            'message' => 'Payment verified and order updated successfully',
-                            'payment_id' => $input['razorpay_payment_id']
-                        ]);
-                        return;
+                            'message' => 'Payment verified successfully',
+                            'data' => [
+                                'payment_id' => $input['razorpay_payment_id'],
+                                'order_id' => $orderRow['id'] ?? null,
+                                'status' => 'completed'
+                            ]
+                        ];
                     } else {
-                        throw new \Exception('Failed to update order status');
+                        mysqli_rollback($conn);
+                        $response = [
+                            'success' => false,
+                            'message' => 'Failed to update order status'
+                        ];
                     }
-                } catch (\Exception $e) {
-                    error_log('Error updating order status: ' . $e->getMessage());
-                    http_response_code(500);
-                    echo json_encode([
+                } catch (Exception $e) {
+                    mysqli_rollback($conn);
+                    error_log('Payment verification error: ' . $e->getMessage());
+                    $response = [
                         'success' => false,
-                        'message' => 'Payment verified but failed to update order status',
-                        'error' => $e->getMessage()
-                    ]);
+                        'message' => 'Payment verification failed'
+                    ];
                 }
             } else {
-                http_response_code(400);
-                echo json_encode([
+                $response = [
                     'success' => false,
-                    'message' => 'Payment not captured or order_id mismatch',
-                    'payment_status' => $payment['status'] ?? null,
-                    'payment_order_id' => $payment['order_id'] ?? null,
-                    'expected_order_id' => $razorpay_order_id
-                ]);
+                    'message' => 'Payment verification failed - invalid payment data'
+                ];
             }
         } else {
-            // Signature verification failed
-            http_response_code(400);
-            echo json_encode([
+            $response = [
                 'success' => false,
-                'message' => 'Invalid payment signature'
-            ]);
-            http_response_code(404);
-            echo json_encode(['success' => false, 'message' => 'Order not found']);
-            return;
+                'message' => 'Payment verification failed - invalid signature'
+            ];
         }
-        return;
+        
+        header('Content-Type: application/json');
+        echo json_encode($response);
     }
 
     public static function verifySignature()
