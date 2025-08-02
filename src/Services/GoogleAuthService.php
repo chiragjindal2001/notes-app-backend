@@ -6,8 +6,6 @@ require_once __DIR__ . '/../../models/User.php';
 use Helpers\Config;
 use Helpers\JwtService;
 use Helpers\Database;
-use Google_Client;
-use Google_Service_Oauth2;
 
 class GoogleAuthService {
     private $client;
