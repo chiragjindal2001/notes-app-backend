@@ -33,7 +33,7 @@ class AuthController extends BaseController {
                 }
                 // Redirect to frontend with JWT token and user info in query params
                 $userJson = urlencode(json_encode($authResult['user']));
-                header('Location: http://localhost:3000/?token=' . urlencode($authResult['token']) . '&user=' . $userJson);
+                header('Location: https://civilstudies.vercel.app/?token=' . urlencode($authResult['token']) . '&user=' . $userJson);
                 exit;
             } else {
                 throw new Exception('Invalid request method');

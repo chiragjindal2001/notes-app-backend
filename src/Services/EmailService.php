@@ -34,7 +34,7 @@ class EmailService
      */
     private function getPaymentConfirmationTemplate($userName, $orderData)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         $myNotesUrl = $baseUrl . '/my-notes';
         
         return "
@@ -118,7 +118,7 @@ class EmailService
      */
     private function getPaymentConfirmationTextTemplate($userName, $orderData)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         $myNotesUrl = $baseUrl . '/my-notes';
         
         return "
@@ -294,7 +294,7 @@ This is an automated email. Please do not reply to this message.";
      */
     private function getVerificationEmailTemplate($userName, $verificationCode)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         
         return "
         <!DOCTYPE html>
@@ -358,7 +358,7 @@ This is an automated email. Please do not reply to this message.";
      */
     private function getVerificationEmailTextTemplate($userName, $verificationCode)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         
         return "
 Verify Your Email - StudyNotes
@@ -402,7 +402,7 @@ This is an automated email. Please do not reply to this message.";
      */
     private function getPasswordResetTemplate($userName, $resetToken)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         $resetUrl = $baseUrl . '/reset-password?token=' . urlencode($resetToken);
         
         return "
@@ -465,7 +465,7 @@ This is an automated email. Please do not reply to this message.";
      */
     private function getPasswordResetTextTemplate($userName, $resetToken)
     {
-        $baseUrl = $this->config['base_url'] ?? 'http://localhost:3000';
+        $baseUrl = $this->config['base_url'] ?? 'https://civilstudies.vercel.app';
         $resetUrl = $baseUrl . '/reset-password?token=' . urlencode($resetToken);
         
         return "

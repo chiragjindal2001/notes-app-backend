@@ -44,7 +44,7 @@ class AdminNotesController
                 // Determine directory by file type
                 $is_pdf = false;
                 $is_image = false;
-                $target_dir = dirname(__DIR__, 2) . '/public/uploads/';
+                $target_dir = dirname(__DIR__, 2) . '/uploads/';
                 $url_prefix = '/uploads/';
                 if ($f === 'note_file' || ($f === 'sample_pages' && is_array($_FILES[$f]['name']) && isset($_FILES[$f]['type'][0]) && strpos($_FILES[$f]['type'][0], 'pdf') !== false)) {
                     $is_pdf = true;
@@ -65,7 +65,7 @@ class AdminNotesController
                             $target_dir = dirname(__DIR__, 2) . '/private_uploads/pdfs/';
                             $url_prefix = '/private_uploads/pdfs/'; // Internal storage reference
                         } elseif (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                            $target_dir = dirname(__DIR__, 2) . '/public/uploads/images/';
+                            $target_dir = dirname(__DIR__, 2) . '/uploads/images/';
                             $url_prefix = '/uploads/images/';
                         }
                         if (!is_dir($target_dir)) mkdir($target_dir,0777,true);
@@ -81,7 +81,7 @@ class AdminNotesController
                         $target_dir = dirname(__DIR__, 2) . '/private_uploads/pdfs/';
                         $url_prefix = '/private_uploads/pdfs/'; // This is just a storage reference, not a public URL
                     } elseif (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                        $target_dir = dirname(__DIR__, 2) . '/public/uploads/images/';
+                        $target_dir = dirname(__DIR__, 2) . '/uploads/images/';
                         $url_prefix = '/uploads/images/';
                     }
                     if (!is_dir($target_dir)) mkdir($target_dir,0777,true);
@@ -106,10 +106,10 @@ class AdminNotesController
             $file_paths['note_file'] ?? null,
             $file_paths['preview_image'] ?? null,
             isset($file_paths['sample_pages']) ? json_encode($file_paths['sample_pages']) : json_encode([]),
-            'active', true
+            'active'
         ];
         $stmt = mysqli_prepare($conn, $sql);
-        mysqli_stmt_bind_param($stmt, 'ssdsissssss', 
+        mysqli_stmt_bind_param($stmt, 'sssdsssssss', 
             $params[0], $params[1], $params[2], $params[3], $params[4], $params[5], $params[6], $params[7], $params[8], $params[9], $params[10]
         );
         mysqli_stmt_execute($stmt);
@@ -163,17 +163,17 @@ class AdminNotesController
                 'price' => (float)$row['price'],
                 'tags' => $tags,
                 'description' => $row['description'],
-                'rating' => 0.0, // Placeholder - implement rating system if needed
-                'downloads' => (int)($row['downloads'] ?? 0),
-                'download_count' => (int)($row['downloads'] ?? 0),
+                'rating' => 5.0,
+                'downloads' => '250+',
+                'download_count' => '250+',
                 'status' => $row['status'],
                 'file_name' => $filename,
                 'filename' => $filename,
                 'file' => [
                     'name' => $filename,
-                    'url' => $file_url ? ($_SERVER['HTTP_HOST'] ?? 'localhost') . $file_url : null
+                    'url' => $file_url ? ($_SERVER['HTTP_HOST'] ?? 'localhost:8080') . $file_url : null
                 ],
-                'preview' => $row['preview_image'] ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $row['preview_image']) : null,
+                'preview' => $row['preview_image'] ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost:8080') . $row['preview_image']) : null,
                 'uploadDate' => date('Y-m-d', strtotime($row['created_at']))
             ];
             
@@ -259,7 +259,7 @@ class AdminNotesController
                     $target_dir = dirname(__DIR__, 2) . '/private_uploads/pdfs/';
                     $url_prefix = '/private_uploads/pdfs/';
                 } elseif ($formField === 'preview_image' && in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                    $target_dir = dirname(__DIR__, 2) . '/public/uploads/images/';
+                    $target_dir = dirname(__DIR__, 2) . '/uploads/images/';
                     $url_prefix = '/uploads/images/';
                 }
                 if ($target_dir && $url_prefix) {

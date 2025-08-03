@@ -10,6 +10,13 @@ class Config {
         if (self::$config === null) {
             self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
+        
+        // Check environment variable first
+        $envKey = strtoupper($key);
+        if (isset($_ENV[$envKey])) {
+            return $_ENV[$envKey];
+        }
+        
         return self::$config[$key] ?? $default;
     }
 
@@ -80,7 +87,13 @@ class Config {
         if (self::$config === null) {
             self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
-        return self::$config['google'];
+        
+        // Use environment variables if available, otherwise fall back to config
+        return [
+            'client_id' => $_ENV['GOOGLE_CLIENT_ID'] ?? self::$config['google']['client_id'],
+            'client_secret' => $_ENV['GOOGLE_CLIENT_SECRET'] ?? self::$config['google']['client_secret'],
+            'redirect_uri' => $_ENV['GOOGLE_REDIRECT_URI'] ?? self::$config['google']['redirect_uri'],
+        ];
     }
     
     /**

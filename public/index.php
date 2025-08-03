@@ -10,7 +10,7 @@ require_once PROJECT_ROOT . '/src/Helpers/JwtService.php';
 // --- CORS CONFIGURATION ---
 // List of allowed origins
 $allowedOrigins = [
-    'http://localhost:3000',
+    'https://civilstudies.vercel.app',
     // Add other allowed origins here if needed
 ];
 
@@ -23,7 +23,7 @@ if (in_array($origin, $allowedOrigins)) {
 }
 
 // Required headers for CORS with credentials
-header('Access-Control-Allow-Origin: http://localhost:3000');
+header('Access-Control-Allow-Origin: https://civilstudies.vercel.app');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Credentials: true');

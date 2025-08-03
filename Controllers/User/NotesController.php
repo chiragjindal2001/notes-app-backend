@@ -50,7 +50,29 @@ class NotesController
                 ];
             }
             
-            $notes = $noteModel->getAll($filters, $pagination, $sort);
+            $rawNotes = $noteModel->getAll($filters, $pagination, $sort);
+            
+            // Process notes to add proper image URLs
+            $notes = [];
+            foreach ($rawNotes as $note) {
+                $notes[] = [
+                    'id' => (int)$note['id'],
+                    'title' => $note['title'],
+                    'description' => $note['description'],
+                    'subject' => $note['subject'],
+                    'price' => (float)$note['price'],
+                    'tags' => json_decode($note['tags'] ?? '[]', true) ?: [],
+                    'features' => json_decode($note['features'] ?? '[]', true) ?: [],
+                    'topics' => json_decode($note['topics'] ?? '[]', true) ?: [],
+                    'status' => $note['status'],
+                    'downloads' => '250+',
+                    'rating' => 5.0,
+                    'preview_image' => $note['preview_image'] ? ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost:8080') . $note['preview_image']) : null,
+                    'file_url' => $note['file_url'],
+                    'created_at' => $note['created_at'],
+                    'is_active' => (bool)$note['is_active']
+                ];
+            }
 
             // For pagination
             $count = count($notes); // For now, just count returned; for real total, add a count method to model
@@ -89,6 +111,11 @@ class NotesController
             echo json_encode(['success' => false, 'message' => 'Note not found']);
             return;
         }
+        
+        // Set rating and downloads for individual note view
+        $note['rating'] = 5.0;
+        $note['downloads'] = '250+';
+        
         // Fetch author info, reviews, etc. as before if needed
         $response = [
             'success' => true,
@@ -206,10 +233,12 @@ class NotesController
             $notes[] = $note;
         }
         
-        // Build download URLs (placeholder, you may want to generate secure links)
-        $base_url = $config['base_url'] ?? 'http://localhost:8080';
+        // Build download URLs and set rating/downloads (placeholder, you may want to generate secure links)
+        $base_url = $config['base_url'] ?? 'https://sienna-cod-887616.hostingersite.com/';
         foreach ($notes as &$note) {
             $note['download_url'] = $base_url . "/api/downloads/" . $note['id'];
+            $note['rating'] = 5.0;
+            $note['downloads'] = '250+';
         }
         echo json_encode(['success' => true, 'data' => $notes]);
     }
