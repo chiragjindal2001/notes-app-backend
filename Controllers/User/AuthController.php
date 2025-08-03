@@ -35,9 +35,12 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Check if email already exists
-        $check_sql = 'SELECT id FROM users WHERE email = $1';
-        $check_result = pg_query_params($conn, $check_sql, [$input['email']]);
-        if (pg_num_rows($check_result) > 0) {
+        $check_sql = 'SELECT id FROM users WHERE email = ?';
+        $check_stmt = mysqli_prepare($conn, $check_sql);
+        mysqli_stmt_bind_param($check_stmt, 's', $input['email']);
+        mysqli_stmt_execute($check_stmt);
+        $check_result = mysqli_stmt_get_result($check_stmt);
+        if (mysqli_num_rows($check_result) > 0) {
             http_response_code(409);
             echo json_encode(['success' => false, 'message' => 'This email is already registered. Please try logging in or use a different email address.']);
             return;
@@ -51,16 +54,26 @@ class AuthController
         $verification_expires = date('Y-m-d H:i:s', time() + (10 * 60)); // 10 minutes from now
         
         // Insert new user with verification code
-        $insert_sql = 'INSERT INTO users (email, password_hash, name, verification_code, verification_code_expires_at, is_verified, created_at) VALUES ($1, $2, $3, $4, $5, FALSE, NOW()) RETURNING id, email, name, created_at';
-        $insert_result = pg_query_params($conn, $insert_sql, [$input['email'], $password_hash, $input['name'], $verification_code, $verification_expires]);
+        $insert_sql = 'INSERT INTO users (email, password_hash, name, verification_code, verification_code_expires_at, is_verified, created_at) VALUES (?, ?, ?, ?, ?, FALSE, NOW())';
+        $insert_stmt = mysqli_prepare($conn, $insert_sql);
+        mysqli_stmt_bind_param($insert_stmt, 'sssss', $input['email'], $password_hash, $input['name'], $verification_code, $verification_expires);
         
-        if ($insert_result === false) {
+        if (!mysqli_stmt_execute($insert_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to create user: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to create user: ' . mysqli_error($conn)]);
             return;
         }
 
-        $user = pg_fetch_assoc($insert_result);
+        // Get the inserted ID
+        $insertedId = mysqli_insert_id($conn);
+        
+        // Fetch the inserted record
+        $select_sql = 'SELECT id, email, name, created_at FROM users WHERE id = ?';
+        $select_stmt = mysqli_prepare($conn, $select_sql);
+        mysqli_stmt_bind_param($select_stmt, 'i', $insertedId);
+        mysqli_stmt_execute($select_stmt);
+        $result = mysqli_stmt_get_result($select_stmt);
+        $user = mysqli_fetch_assoc($result);
         
         // Send verification email
         try {
@@ -115,9 +128,12 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email
-        $sql = 'SELECT id, email, password_hash, name, is_verified FROM users WHERE email = $1';
-        $result = pg_query_params($conn, $sql, [$input['email']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, password_hash, name, is_verified FROM users WHERE email = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['email']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
 
         if (!$user || !password_verify($input['password'], $user['password_hash'])) {
             http_response_code(401);
@@ -126,7 +142,7 @@ class AuthController
         }
 
         // Check if email is verified
-        if ($user['is_verified'] !== 't') {
+        if ($user['is_verified'] != 1) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Please verify your email address before logging in. Check your inbox for a verification email or use the resend option.']);
             return;
@@ -335,9 +351,12 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email and verification code
-        $sql = 'SELECT id, email, name, verification_code, verification_code_expires_at, is_verified FROM users WHERE email = $1 AND verification_code = $2';
-        $result = pg_query_params($conn, $sql, [$input['email'], $input['code']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, name, verification_code, verification_code_expires_at, is_verified FROM users WHERE email = ? AND verification_code = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'ss', $input['email'], $input['code']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
 
         if (!$user) {
             http_response_code(400);
@@ -345,7 +364,7 @@ class AuthController
             return;
         }
 
-        if ($user['is_verified'] === 't') {
+        if ($user['is_verified'] == 1) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Email is already verified']);
             return;
@@ -359,12 +378,13 @@ class AuthController
         }
 
         // Mark user as verified and clear verification code
-        $update_sql = 'UPDATE users SET is_verified = TRUE, verification_code = NULL, verification_code_expires_at = NULL WHERE id = $1';
-        $update_result = pg_query_params($conn, $update_sql, [$user['id']]);
-
-        if ($update_result === false) {
+        $update_sql = 'UPDATE users SET is_verified = TRUE, verification_code = NULL, verification_code_expires_at = NULL WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'i', $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to verify email: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to verify email: ' . mysqli_error($conn)]);
             return;
         }
 
@@ -402,9 +422,12 @@ class AuthController
         $conn = Db::getConnection($config);
 
         // Find user by email
-        $sql = 'SELECT id, email, name, is_verified FROM users WHERE email = $1';
-        $result = pg_query_params($conn, $sql, [$input['email']]);
-        $user = pg_fetch_assoc($result);
+        $sql = 'SELECT id, email, name, is_verified FROM users WHERE email = ?';
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 's', $input['email']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $user = mysqli_fetch_assoc($result);
 
         if (!$user) {
             http_response_code(404);
@@ -412,7 +435,7 @@ class AuthController
             return;
         }
 
-        if ($user['is_verified'] === 't') {
+        if ($user['is_verified'] == 1) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'Email is already verified']);
             return;
@@ -423,12 +446,13 @@ class AuthController
         $verification_expires = date('Y-m-d H:i:s', time() + (10 * 60)); // 10 minutes from now
 
         // Update user with new verification code
-        $update_sql = 'UPDATE users SET verification_code = $1, verification_code_expires_at = $2 WHERE id = $3';
-        $update_result = pg_query_params($conn, $update_sql, [$verification_code, $verification_expires, $user['id']]);
-
-        if ($update_result === false) {
+        $update_sql = 'UPDATE users SET verification_code = ?, verification_code_expires_at = ? WHERE id = ?';
+        $update_stmt = mysqli_prepare($conn, $update_sql);
+        mysqli_stmt_bind_param($update_stmt, 'ssi', $verification_code, $verification_expires, $user['id']);
+        
+        if (!mysqli_stmt_execute($update_stmt)) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Failed to update verification code: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Failed to update verification code: ' . mysqli_error($conn)]);
             return;
         }
 

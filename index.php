@@ -1,6 +1,6 @@
 <?php
 // Remove Dotenv usage and .env loading
-define('PROJECT_ROOT', PROJECT_ROOT);
+define('PROJECT_ROOT', __DIR__);
 require_once PROJECT_ROOT . '/vendor/autoload.php';
 require_once PROJECT_ROOT . '/config/config.development.php';
 require_once PROJECT_ROOT . '/src/Helpers/Config.php';
@@ -62,7 +62,7 @@ $requestData = [
 ];
 
 // Initialize logger
-require_once PROJECT_ROOT . '/src/Helpers/Logger.php';
+require_once __DIR__ . '/src/Helpers/Logger.php';
 \Helpers\Logger::getInstance();
 \Helpers\Logger::logRequest($requestData);
 

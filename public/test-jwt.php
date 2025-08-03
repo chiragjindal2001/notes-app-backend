@@ -6,7 +6,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config/config.development.php';
 
 if (!defined('PROJECT_ROOT')) {
-    define('PROJECT_ROOT', dirname(__DIR__));
+    define('PROJECT_ROOT', PROJECT_ROOT);
 }
 require_once PROJECT_ROOT . '/src/Helpers/JwtService.php';
 

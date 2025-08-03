@@ -1,0 +1,35 @@
+# Move from public/.htaccess to root .htaccess
+RewriteEngine On
+
+# Handle front controller pattern
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# Security: Prevent access to sensitive files
+<Files "*.php">
+    Order Allow,Deny
+    Allow from all
+</Files>
+
+# Prevent access to config files
+<Files "config/*">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Protect sensitive directories
+<Files "src/*">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+<Files "models/*">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+<Files "Controllers/*">
+    Order Allow,Deny
+    Deny from all
+</Files> 

@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-require_once dirname(__DIR__) . '/src/UserAuthHelper.php';
+require_once PROJECT_ROOT . '/src/UserAuthHelper.php';
 
 $response = [
     'success' => false,

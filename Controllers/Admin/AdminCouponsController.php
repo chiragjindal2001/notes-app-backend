@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__) . '/src/AuthHelper.php';
+require_once PROJECT_ROOT . '/src/AuthHelper.php';
 class AdminCouponsController
 {
     public static function createCoupon()
@@ -19,9 +19,9 @@ class AdminCouponsController
                 return;
             }
         }
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Coupon.php';
+        $config = require PROJECT_ROOT . '/config/config.development.php';
+        require_once PROJECT_ROOT . '/src/Db.php';
+        require_once PROJECT_ROOT . '/models/Coupon.php';
         $conn = Db::getConnection($config);
         $couponModel = new Coupon($conn);
         $coupon = $couponModel->create($input);
@@ -41,9 +41,9 @@ class AdminCouponsController
             echo json_encode(['success' => false, 'message' => 'Method Not Allowed']);
             return;
         }
-        $config = require dirname(__DIR__) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
-        require_once dirname(__DIR__) . '/models/Coupon.php';
+        $config = require PROJECT_ROOT . '/config/config.development.php';
+        require_once PROJECT_ROOT . '/src/Db.php';
+        require_once PROJECT_ROOT . '/models/Coupon.php';
         $pdo = Db::getConnection($config);
         $couponModel = new Coupon($pdo);
         $coupons = $couponModel->list();

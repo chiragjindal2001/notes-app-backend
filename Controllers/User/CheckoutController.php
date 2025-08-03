@@ -267,7 +267,7 @@ class CheckoutController
                 return;
             }
         }
-        $config = require dirname(__DIR__) . '/config/config.development.php';
+        $config = require PROJECT_ROOT . '/config/config.development.php';
         $key_secret = $config['razorpay']['key_secret'];
         $generated_signature = hash_hmac('sha256', $input['razorpay_order_id'] . '|' . $input['razorpay_payment_id'], $key_secret);
         $valid = ($generated_signature === $input['razorpay_signature']);

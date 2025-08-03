@@ -5,7 +5,7 @@ require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../src/Services/GoogleAuthService.php';
 
 if (!defined('PROJECT_ROOT')) {
-    define('PROJECT_ROOT', dirname(__DIR__));
+    define('PROJECT_ROOT', PROJECT_ROOT);
 }
 require_once PROJECT_ROOT . '/src/Helpers/JwtService.php';
 

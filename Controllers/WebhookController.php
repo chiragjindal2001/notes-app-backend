@@ -28,8 +28,8 @@ class WebhookController
         if ($payload['event'] === 'payment.captured') {
             $order_id = $payload['payload']['payment']['entity']['notes']['order_id'] ?? null;
             if ($order_id) {
-                require_once dirname(__DIR__) . '/src/Db.php';
-                require_once dirname(__DIR__) . '/models/Order.php';
+                require_once PROJECT_ROOT . '/src/Db.php';
+                require_once PROJECT_ROOT . '/models/Order.php';
                 $pdo = Db::getConnection($config);
                 $orderModel = new Order($pdo);
                 $orderModel->updateStatus($order_id, 'completed');
@@ -44,46 +44,3 @@ class WebhookController
     }
 }
 
-
-
-order_id
-razorpay_order_id
-
-notes = {
-    order_id: razorpay_order_id,
-}
-
-mappping
-
-options = {
-
-    api_key: 
-    ordeR_id = razorpay_order_id,
-    prefill ,
-    status_hanler = funciotn() {
-        window.location.href = "/payment/?order_id=" . order_id;
-    }
-
-
-}
- new razorpay(options;)
-
-
-
- backedn:
- order_id = razorpay_order_id,
-
- orderdetails = 
-
- details fetch 
- payments = 
-
-}
-
-
-order_i  is_active;
-
-
-rdirect = success
-faile d= failed
-pending

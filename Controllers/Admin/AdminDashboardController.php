@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__) . '/src/AuthHelper.php';
+require_once PROJECT_ROOT . '/src/AuthHelper.php';
 class AdminDashboardController
 {
     public static function stats()
@@ -11,9 +11,9 @@ class AdminDashboardController
             return;
         }
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
-        require_once dirname(__DIR__) . '/src/Db.php';
+        require_once PROJECT_ROOT . '/src/Db.php';
         $conn = Db::getConnection($config);
-        require_once dirname(__DIR__) . '/models/Dashboard.php';
+        require_once PROJECT_ROOT . '/models/Dashboard.php';
         $dashboardModel = new Dashboard($conn);
         $stats = $dashboardModel->getStats();
         $response = [

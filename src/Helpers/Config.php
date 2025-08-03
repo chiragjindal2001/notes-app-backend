@@ -8,7 +8,7 @@ class Config {
 
     public static function get($key, $default = null) {
         if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+            self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
         return self::$config[$key] ?? $default;
     }
@@ -16,7 +16,7 @@ class Config {
     // Optionally, add a method to get nested config values
     public static function getNested($keys, $default = null) {
         if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+            self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
         $value = self::$config;
         foreach ($keys as $key) {
@@ -36,7 +36,7 @@ class Config {
      */
     public static function database() {
         if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+            self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
         
         // Check if using the new 'db' array structure
@@ -61,7 +61,7 @@ class Config {
      */
     public static function jwt() {
         if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+            self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
         return [
             'secret' => self::$config['jwt_secret'] ?? 'your_secure_jwt_secret',
@@ -78,7 +78,7 @@ class Config {
      */
     public static function google() {
         if (self::$config === null) {
-            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+            self::$config = require PROJECT_ROOT . '/config/config.development.php';
         }
         return self::$config['google'];
     }

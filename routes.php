@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $uri = strtok($_SERVER['REQUEST_URI'], '?');
 
 if ($uri === '/' || $uri === '/hello') {
-    echo 'E-Notes Backend API';
+    echo 'Civil Studies Backend API';
 } elseif ($uri === '/api/notes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     require_once PROJECT_ROOT . '/Controllers/User/NotesController.php';
     NotesController::getNotes();
