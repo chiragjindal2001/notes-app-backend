@@ -21,10 +21,35 @@ class NotesController
                 'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 12,
                 'offset' => (isset($_GET['page']) ? ((int)$_GET['page'] - 1) : 0) * (isset($_GET['limit']) ? (int)$_GET['limit'] : 12),
             ];
-            $sort = [
-                'by' => $_GET['sort_by'] ?? null,
-                'order' => $_GET['sort_order'] ?? null,
-            ];
+            
+            // Handle sort parameter - support both 'sort' and 'sort_by'/'sort_order'
+            $sort = [];
+            if (isset($_GET['sort'])) {
+                // Handle single sort parameter like 'popular', 'newest', 'price_asc', etc.
+                switch ($_GET['sort']) {
+                    case 'popular':
+                        $sort = ['by' => 'downloads', 'order' => 'DESC'];
+                        break;
+                    case 'newest':
+                        $sort = ['by' => 'created_at', 'order' => 'DESC'];
+                        break;
+                    case 'price_asc':
+                        $sort = ['by' => 'price', 'order' => 'ASC'];
+                        break;
+                    case 'price_desc':
+                        $sort = ['by' => 'price', 'order' => 'DESC'];
+                        break;
+                    default:
+                        $sort = ['by' => 'created_at', 'order' => 'DESC'];
+                }
+            } else {
+                // Handle separate sort_by and sort_order parameters
+                $sort = [
+                    'by' => $_GET['sort_by'] ?? null,
+                    'order' => $_GET['sort_order'] ?? null,
+                ];
+            }
+            
             $notes = $noteModel->getAll($filters, $pagination, $sort);
 
             // For pagination
@@ -142,11 +167,15 @@ class NotesController
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         require_once dirname(__DIR__, 2) . '/models/Note.php';
         $conn = Db::getConnection($config);
+        
         // Get all paid orders for this user
-        $orderSql = 'SELECT o.order_id as order_id, oi.note_id FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE o.user_id = $1 AND o.status = $2';
-        $orderResult = pg_query_params($conn, $orderSql, [$user_id, 'paid']);
+        $orderSql = 'SELECT o.order_id as order_id, oi.note_id FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE o.user_id = ? AND o.status = ?';
+        $orderStmt = mysqli_prepare($conn, $orderSql);
+        mysqli_stmt_bind_param($orderStmt, 'is', $user_id, 'paid');
+        mysqli_stmt_execute($orderStmt);
+        $orderResult = mysqli_stmt_get_result($orderStmt);
         $rows = [];
-        while ($row = pg_fetch_assoc($orderResult)) {
+        while ($row = mysqli_fetch_assoc($orderResult)) {
             $rows[] = $row;
         }
         $note_ids = array_column($rows, 'note_id');
@@ -154,15 +183,28 @@ class NotesController
             echo json_encode(['success' => true, 'data' => []]);
             return;
         }
+        
         // Fetch note details
-        $in = implode(',', array_fill(0, count($note_ids), '$' . ($i = 1))); $i = 1;
-        foreach ($note_ids as &$id) { $id = (int)$id; }
-        $noteSql = 'SELECT id, title, subject, price, preview_image FROM notes WHERE id IN (' . implode(',', array_map(function($i){static $j=1;return '$'.($j++);},$note_ids)) . ') AND is_active = TRUE';
-        $noteResult = pg_query_params($conn, $noteSql, $note_ids);
+        $placeholders = str_repeat('?,', count($note_ids) - 1) . '?';
+        $noteSql = 'SELECT id, title, subject, price, preview_image FROM notes WHERE id IN (' . $placeholders . ') AND is_active = TRUE';
+        $noteStmt = mysqli_prepare($conn, $noteSql);
+        
+        // Create array of references for bind_param
+        $types = str_repeat('i', count($note_ids));
+        $params = array();
+        $params[] = $types;
+        for($i = 0; $i < count($note_ids); $i++) {
+            $params[] = &$note_ids[$i];
+        }
+        call_user_func_array('mysqli_stmt_bind_param', array_merge(array($noteStmt), $params));
+        
+        mysqli_stmt_execute($noteStmt);
+        $noteResult = mysqli_stmt_get_result($noteStmt);
         $notes = [];
-        while ($note = pg_fetch_assoc($noteResult)) {
+        while ($note = mysqli_fetch_assoc($noteResult)) {
             $notes[] = $note;
         }
+        
         // Build download URLs (placeholder, you may want to generate secure links)
         $base_url = $config['base_url'] ?? 'http://localhost:8080';
         foreach ($notes as &$note) {

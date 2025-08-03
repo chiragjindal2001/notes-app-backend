@@ -94,7 +94,7 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
+        $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, NOW())';
         $params = [
             $data['title'],
             $data['description'],
@@ -106,7 +106,7 @@ class AdminNotesController
             $file_paths['note_file'] ?? null,
             $file_paths['preview_image'] ?? null,
             isset($file_paths['sample_pages']) ? json_encode($file_paths['sample_pages']) : json_encode([]),
-            'active'
+            'active', true
         ];
         $stmt = mysqli_prepare($conn, $sql);
         mysqli_stmt_bind_param($stmt, 'ssdsissssss', 
