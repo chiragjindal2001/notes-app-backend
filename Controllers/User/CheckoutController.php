@@ -102,7 +102,10 @@ class CheckoutController
             return;
         }
         // Update order with razorpay_order_id
-        pg_query_params($pdo, 'UPDATE orders SET razorpay_order_id = $1 WHERE order_id = $2', [$razorpay_order['id'], $order_id]);
+        $updateSql = 'UPDATE orders SET razorpay_order_id = ? WHERE order_id = ?';
+        $updateStmt = mysqli_prepare($pdo, $updateSql);
+        mysqli_stmt_bind_param($updateStmt, 'ss', $razorpay_order['id'], $order_id);
+        mysqli_stmt_execute($updateStmt);
 
         $response = [
             'success' => true,
@@ -167,7 +170,7 @@ class CheckoutController
                 try {
                     // Get database connection
                     $pdo = Database::getConnection();
-                    pg_query($pdo, 'BEGIN');
+                    mysqli_query($pdo, 'START TRANSACTION');
                     $orderModel = new Order($pdo);
                     // Update order status to 'paid'
                     $updated = $orderModel->updateStatusByRazorpayOrderId(
@@ -204,7 +207,7 @@ class CheckoutController
                             error_log('Failed to send payment confirmation email: ' . $emailError->getMessage());
                         }
                         
-                        pg_query($pdo, 'COMMIT');
+                        mysqli_query($pdo, 'COMMIT');
                         http_response_code(200);
                         echo json_encode([
                             'success' => true,

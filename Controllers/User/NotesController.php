@@ -171,7 +171,8 @@ class NotesController
         // Get all paid orders for this user
         $orderSql = 'SELECT o.order_id as order_id, oi.note_id FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE o.user_id = ? AND o.status = ?';
         $orderStmt = mysqli_prepare($conn, $orderSql);
-        mysqli_stmt_bind_param($orderStmt, 'is', $user_id, 'paid');
+        $status = 'paid';
+        mysqli_stmt_bind_param($orderStmt, 'is', $user_id, $status);
         mysqli_stmt_execute($orderStmt);
         $orderResult = mysqli_stmt_get_result($orderStmt);
         $rows = [];

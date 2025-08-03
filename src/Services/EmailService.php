@@ -238,10 +238,13 @@ This is an automated email. Please do not reply to this message.";
     {
         try {
             $pdo = \Helpers\Database::getConnection();
-            $stmt = pg_query_params($pdo, 'SELECT email FROM users WHERE id = $1', [$userId]);
-            $result = pg_fetch_assoc($stmt);
+            $stmt = mysqli_prepare($pdo, 'SELECT email FROM users WHERE id = ?');
+            mysqli_stmt_bind_param($stmt, 'i', $userId);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $row = mysqli_fetch_assoc($result);
             
-            return $result ? $result['email'] : null;
+            return $row ? $row['email'] : null;
         } catch (\Exception $e) {
             error_log("Error fetching user email: " . $e->getMessage());
             return null;
@@ -255,11 +258,14 @@ This is an automated email. Please do not reply to this message.";
     {
         try {
             $pdo = \Helpers\Database::getConnection();
-            $stmt = pg_query_params($pdo, 'SELECT name FROM users WHERE id = $1', [$userId]);
-            $result = pg_fetch_assoc($stmt);
+            $stmt = mysqli_prepare($pdo, 'SELECT name FROM users WHERE id = ?');
+            mysqli_stmt_bind_param($stmt, 'i', $userId);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $row = mysqli_fetch_assoc($result);
             
-            if ($result) {
-                $firstName = $result['name'] ?? 'User';
+            if ($row) {
+                $firstName = $row['name'] ?? 'User';
                 return $firstName ?: 'User';
             }
             

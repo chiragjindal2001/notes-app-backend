@@ -58,9 +58,12 @@ class OrdersController
             }
             
             // Get user email
-            $userSql = 'SELECT email FROM users WHERE id = $1';
-            $userResult = pg_query_params($conn, $userSql, [$user_id]);
-            $user = pg_fetch_assoc($userResult);
+            $userSql = 'SELECT email FROM users WHERE id = ?';
+            $userStmt = mysqli_prepare($conn, $userSql);
+            mysqli_stmt_bind_param($userStmt, 'i', $user_id);
+            mysqli_stmt_execute($userStmt);
+            $userResult = mysqli_stmt_get_result($userStmt);
+            $user = mysqli_fetch_assoc($userResult);
             
             $response = [
                 'success' => true,

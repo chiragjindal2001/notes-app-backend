@@ -35,12 +35,22 @@ class Config {
      * @return array
      */
     public static function database() {
+        if (self::$config === null) {
+            self::$config = require dirname(__DIR__) . '/../config/config.development.php';
+        }
+        
+        // Check if using the new 'db' array structure
+        if (isset(self::$config['db'])) {
+            return self::$config['db'];
+        }
+        
+        // Fallback to individual keys for backward compatibility
         return [
             'host' => self::get('DB_HOST', 'localhost'),
-            'port' => (int)self::get('DB_PORT', 5432),
-            'database' => self::get('DB_DATABASE', 'postgres'),
-            'user' => self::get('DB_USERNAME', 'postgres'),
-            'password' => self::get('DB_PASSWORD', 'postgres'),
+            'port' => (int)self::get('DB_PORT', 3306), // Changed default to MySQL port
+            'database' => self::get('DB_DATABASE', 'mysql'),
+            'user' => self::get('DB_USERNAME', 'root'),
+            'password' => self::get('DB_PASSWORD', ''),
         ];
     }
     
