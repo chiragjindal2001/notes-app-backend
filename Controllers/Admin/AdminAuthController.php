@@ -20,8 +20,11 @@ class AdminAuthController
         $conn = Db::getConnection($config);
         require_once dirname(__DIR__, 2) . '/models/Admin.php';
         $adminModel = new Admin($conn);
-        $result = pg_query_params($conn, 'SELECT * FROM admins WHERE username = $1', [$input['username']]);
-        $admin = pg_fetch_assoc($result);
+        $stmt = mysqli_prepare($conn, 'SELECT * FROM admins WHERE username = ?');
+        mysqli_stmt_bind_param($stmt, 's', $input['username']);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $admin = mysqli_fetch_assoc($result);
         if (!$admin || !password_verify($input['password'], $admin['password_hash'])) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Invalid credentials']);

@@ -24,24 +24,24 @@ class AdminOrdersController
         $param_index = 1;
         
         if ($status) {
-            $where_conditions[] = 'o.status = $' . $param_index;
+            $where_conditions[] = 'o.status = ?';
             $param_values[] = $status;
             $param_index++;
         }
         if ($search) {
-            $where_conditions[] = '(LOWER(o.customer_email) LIKE $' . $param_index . ' OR LOWER(o.customer_name) LIKE $' . ($param_index + 1) . ')';
+            $where_conditions[] = '(LOWER(o.customer_email) LIKE ? OR LOWER(o.customer_name) LIKE ?)';
             $search_term = '%' . strtolower($search) . '%';
             $param_values[] = $search_term;
             $param_values[] = $search_term;
             $param_index += 2;
         }
         if ($date_from) {
-            $where_conditions[] = 'o.created_at >= $' . $param_index;
+            $where_conditions[] = 'o.created_at >= ?';
             $param_values[] = $date_from;
             $param_index++;
         }
         if ($date_to) {
-            $where_conditions[] = 'o.created_at <= $' . $param_index;
+            $where_conditions[] = 'o.created_at <= ?';
             $param_values[] = $date_to;
             $param_index++;
         }
@@ -49,43 +49,56 @@ class AdminOrdersController
         $where_sql = $where_conditions ? ('WHERE ' . implode(' AND ', $where_conditions)) : '';
         
         // Add LIMIT and OFFSET parameters
-        $limit_param = '$' . $param_index;
-        $offset_param = '$' . ($param_index + 1);
         $param_values[] = $limit;
         $param_values[] = $offset;
         
-        $sql = "SELECT o.order_id, o.customer_email, o.customer_name, o.total_amount, o.status, o.created_at FROM orders o $where_sql ORDER BY o.created_at DESC LIMIT $limit_param OFFSET $offset_param";
+        $sql = "SELECT o.order_id, o.customer_email, o.customer_name, o.total_amount, o.status, o.created_at FROM orders o $where_sql ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
         
-        $result = pg_query_params($conn, $sql, $param_values);
+        $stmt = mysqli_prepare($conn, $sql);
+        if (!empty($param_values)) {
+            $types = str_repeat('s', count($param_values));
+            mysqli_stmt_bind_param($stmt, $types, ...$param_values);
+        }
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
         if ($result === false) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Database query failed: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Database query failed: ' . mysqli_error($conn)]);
             return;
         }
         
         $orders = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             $orders[] = $row;
         }
         
         // Total count for pagination (reuse WHERE conditions but without LIMIT/OFFSET)
         $count_sql = "SELECT COUNT(*) FROM orders o $where_sql";
         $count_params = array_slice($param_values, 0, -2); // Remove LIMIT and OFFSET params
-        $count_result = pg_query_params($conn, $count_sql, $count_params);
+        $count_stmt = mysqli_prepare($conn, $count_sql);
+        if (!empty($count_params)) {
+            $count_types = str_repeat('s', count($count_params));
+            mysqli_stmt_bind_param($count_stmt, $count_types, ...$count_params);
+        }
+        mysqli_stmt_execute($count_stmt);
+        $count_result = mysqli_stmt_get_result($count_stmt);
         if ($count_result === false) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Count query failed: ' . pg_last_error($conn)]);
+            echo json_encode(['success' => false, 'message' => 'Count query failed: ' . mysqli_error($conn)]);
             return;
         }
-        $total_items = (int)pg_fetch_result($count_result, 0, 0);
+        $total_items = (int)mysqli_fetch_row($count_result)[0];
         $total_pages = (int)ceil($total_items / $limit);
         // Fetch items for each order
         foreach ($orders as &$order) {
-            $item_sql = 'SELECT oi.note_id, n.title, n.price FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = (SELECT id FROM orders WHERE order_id = $1)';
-            $item_result = pg_query_params($conn, $item_sql, [$order['order_id']]);
+            $item_sql = 'SELECT oi.note_id, n.title, n.price FROM order_items oi JOIN notes n ON oi.note_id = n.id WHERE oi.order_id = (SELECT id FROM orders WHERE order_id = ?)';
+            $item_stmt = mysqli_prepare($conn, $item_sql);
+            mysqli_stmt_bind_param($item_stmt, 's', $order['order_id']);
+            mysqli_stmt_execute($item_stmt);
+            $item_result = mysqli_stmt_get_result($item_stmt);
             $items = [];
             if ($item_result !== false) {
-                while ($item_row = pg_fetch_assoc($item_result)) {
+                while ($item_row = mysqli_fetch_assoc($item_result)) {
                     $items[] = $item_row;
                 }
             }

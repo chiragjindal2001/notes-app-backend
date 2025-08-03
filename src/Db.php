@@ -6,17 +6,15 @@ class Db
     public static function getConnection($config)
     {
         if (self::$conn === null) {
-            $connStr = sprintf(
-                "host=%s port=%d dbname=%s user=%s password=%s",
+            self::$conn = mysqli_connect(
                 $config['db']['host'],
-                $config['db']['port'],
-                $config['db']['database'],
                 $config['db']['user'],
-                $config['db']['password']
+                $config['db']['password'],
+                $config['db']['database'],
+                $config['db']['port'] ?? 3306
             );
-            self::$conn = pg_connect($connStr);
             if (!self::$conn) {
-                throw new Exception('Failed to connect to PostgreSQL: ' . pg_last_error());
+                throw new Exception('Failed to connect to MySQL: ' . mysqli_connect_error());
             }
         }
         return self::$conn;

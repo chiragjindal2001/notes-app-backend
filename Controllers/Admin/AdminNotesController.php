@@ -94,7 +94,7 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id, title, subject, price, status, created_at, preview_image';
+        $sql = 'INSERT INTO notes (title, description, subject, price, tags, features, topics, file_url, preview_image, sample_pages, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
         $params = [
             $data['title'],
             $data['description'],
@@ -108,8 +108,22 @@ class AdminNotesController
             isset($file_paths['sample_pages']) ? json_encode($file_paths['sample_pages']) : json_encode([]),
             'active'
         ];
-        $result = pg_query_params($conn, $sql, array_slice($params, 0, 11));
-        $note = pg_fetch_assoc($result);
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, 'ssdsissssss', 
+            $params[0], $params[1], $params[2], $params[3], $params[4], $params[5], $params[6], $params[7], $params[8], $params[9], $params[10]
+        );
+        mysqli_stmt_execute($stmt);
+        $insertId = mysqli_insert_id($conn);
+        mysqli_stmt_close($stmt);
+        
+        // Fetch the created note
+        $fetchSql = 'SELECT id, title, subject, price, status, created_at, preview_image FROM notes WHERE id = ?';
+        $fetchStmt = mysqli_prepare($conn, $fetchSql);
+        mysqli_stmt_bind_param($fetchStmt, 'i', $insertId);
+        mysqli_stmt_execute($fetchStmt);
+        $result = mysqli_stmt_get_result($fetchStmt);
+        $note = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($fetchStmt);
         $response = [
             'success' => true,
             'message' => 'Note created successfully',
@@ -129,9 +143,9 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $result = pg_query($conn, 'SELECT id, title, subject, price, downloads, status, created_at, preview_image, file_url, description, tags, features, topics FROM notes ORDER BY created_at DESC');
+        $result = mysqli_query($conn, 'SELECT id, title, subject, price, downloads, status, created_at, preview_image, file_url, description, tags, features, topics FROM notes ORDER BY created_at DESC');
         $notes = [];
-        while ($row = pg_fetch_assoc($result)) {
+        while ($row = mysqli_fetch_assoc($result)) {
             // Parse JSON fields
             $tags = json_decode($row['tags'] ?? '[]', true) ?: [];
             $features = json_decode($row['features'] ?? '[]', true) ?: [];
@@ -266,9 +280,28 @@ class AdminNotesController
         }
 
         $param_values[] = $id;
-        $sql = 'UPDATE notes SET ' . implode(', ', $sql_parts) . ' WHERE id = $' . $param_index . ' RETURNING id, title, subject, price, status, created_at, preview_image, file_url';
-        $result = pg_query_params($conn, $sql, $param_values);
-        $note = pg_fetch_assoc($result);
+        $sql = 'UPDATE notes SET ' . implode(', ', $sql_parts) . ' WHERE id = ?';
+        
+        // Convert PostgreSQL parameter placeholders to MySQL
+        $sql = preg_replace('/\$(\d+)/', '?', $sql);
+        
+        $stmt = mysqli_prepare($conn, $sql);
+        if (!empty($param_values)) {
+            // Create parameter types string
+            $types = str_repeat('s', count($param_values));
+            mysqli_stmt_bind_param($stmt, $types, ...$param_values);
+        }
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
+        
+        // Fetch the updated note
+        $fetchSql = 'SELECT id, title, subject, price, status, created_at, preview_image, file_url FROM notes WHERE id = ?';
+        $fetchStmt = mysqli_prepare($conn, $fetchSql);
+        mysqli_stmt_bind_param($fetchStmt, 'i', $id);
+        mysqli_stmt_execute($fetchStmt);
+        $result = mysqli_stmt_get_result($fetchStmt);
+        $note = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($fetchStmt);
         if (!$note) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Note not found']);
@@ -295,8 +328,23 @@ class AdminNotesController
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
         // Soft delete: set is_active = false
-        $result = pg_query_params($conn, 'UPDATE notes SET is_active = FALSE WHERE id = $1 RETURNING id, is_active', [$id]);
-        $updated = pg_fetch_assoc($result);
+        $stmt = mysqli_prepare($conn, 'UPDATE notes SET is_active = FALSE WHERE id = ?');
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affectedRows > 0) {
+            // Fetch the updated note
+            $fetchStmt = mysqli_prepare($conn, 'SELECT id, is_active FROM notes WHERE id = ?');
+            mysqli_stmt_bind_param($fetchStmt, 'i', $id);
+            mysqli_stmt_execute($fetchStmt);
+            $result = mysqli_stmt_get_result($fetchStmt);
+            $updated = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($fetchStmt);
+        } else {
+            $updated = false;
+        }
         if (!$updated) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Note not found']);
@@ -328,8 +376,23 @@ class AdminNotesController
         $config = require dirname(__DIR__, 2) . '/config/config.development.php';
         require_once dirname(__DIR__, 2) . '/src/Db.php';
         $conn = Db::getConnection($config);
-        $result = pg_query_params($conn, 'UPDATE notes SET status = $1 WHERE id = $2 RETURNING id, title, status', [$input['status'], $id]);
-        $note = pg_fetch_assoc($result);
+        $stmt = mysqli_prepare($conn, 'UPDATE notes SET status = ? WHERE id = ?');
+        mysqli_stmt_bind_param($stmt, 'si', $input['status'], $id);
+        mysqli_stmt_execute($stmt);
+        $affectedRows = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+        
+        if ($affectedRows > 0) {
+            // Fetch the updated note
+            $fetchStmt = mysqli_prepare($conn, 'SELECT id, title, status FROM notes WHERE id = ?');
+            mysqli_stmt_bind_param($fetchStmt, 'i', $id);
+            mysqli_stmt_execute($fetchStmt);
+            $result = mysqli_stmt_get_result($fetchStmt);
+            $note = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($fetchStmt);
+        } else {
+            $note = false;
+        }
         if (!$note) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Note not found']);
